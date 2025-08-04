@@ -66,7 +66,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     state->fileBuffer = NULL;
 
     // Setup SDL
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) != 0)
+    if (!SDL_Init(SDL_INIT_VIDEO) != 0)
     {
         return SDL_APP_FAILURE;
     }
@@ -106,7 +106,6 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     ImGui::CreateContext();
     io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
     ImPlot::CreateContext();
 
