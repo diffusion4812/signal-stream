@@ -2,6 +2,8 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
+#include <implot.h>
+
 #include <iostream>
 
 #define SDL_MAIN_USE_CALLBACKS 1  /* use the callbacks instead of main() */
@@ -23,6 +25,8 @@ static ImGuiIO io;
 
 typedef struct {
     double fps;
+    double *fpshistory;
+    Uint64 frameCount;
     Uint64 lastTime;
     double frequency;
 
@@ -45,6 +49,16 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     state->fps = 0.0;
     state->lastTime = SDL_GetPerformanceCounter();
     state->frequency = (double)SDL_GetPerformanceFrequency();
+    state->frameCount = 0;
+    state->fpshistory = (double *)SDL_malloc(5000 * sizeof(double));
+    if (!state->fpshistory) {
+        SDL_Log("Failed to allocate memory for FPS history: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
+    }
+    for (int i = 0; i < 5000; i++) {
+        state->fpshistory[i] = 0.0;
+    }
+
     state->fileIsRead = false;
     state->fileStream = NULL;
     state->fileSize = 0;
@@ -94,6 +108,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
+    ImPlot::CreateContext();
+
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
     //ImGui::StyleColorsLight();
@@ -123,6 +139,7 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 SDL_AppResult SDL_AppIterate(void *appstate)
 {
     AppState *state = (AppState *)appstate;
+    io = ImGui::GetIO();
 
     if (!state->fileStream) { // Open a file for reading
         state->fileStream = SDL_IOFromFile("example.csv", "r");
@@ -155,15 +172,13 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     ImGui_ImplSDLGPU3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
 
-    ImGui::Begin("FPS Display");
-    ImGui::Text("FPS: %.2f", state->fps);
-    ImGui::End();
-
-    ImGui::Begin("File IO Example");
-    ImGui::Text("This is an example of reading a file asynchronously.");
-    ImGui::Text("%s", state->fileBuffer);
-    ImGui::Text("Bytes read: %zu", state->bytesRead);
+    ImGui::Begin("FPS Display", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+    ImPlot::BeginPlot("FPS");
+    ImPlot::PlotBars("FPS", state->fpshistory, 5000);
+    ImPlot::EndPlot();
     ImGui::End();
 
     ImGui::Render();
@@ -205,6 +220,9 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     state->lastTime = currentTime;
 
     state->fps = 1.0 / deltaTime;
+
+    state->fpshistory[state->frameCount % 5000] = state->fps; // Store the FPS in the history
+    state->frameCount++;
 
     return SDL_APP_CONTINUE;  /* carry on with the program! */
 }
