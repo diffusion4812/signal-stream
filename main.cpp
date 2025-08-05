@@ -5,12 +5,14 @@
 #include <implot.h>
 
 #include <iostream>
+#include <string>
 
 #define SDL_MAIN_USE_CALLBACKS 1  /* use the callbacks instead of main() */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_gpu.h>
 #include <SDL3/SDL_timer.h>
+#include <SDL3/SDL_dialog.h>
 
 #include "rapidcsv.h"
 
@@ -30,6 +32,8 @@ typedef struct {
     Uint64 lastTime;
     double frequency;
 
+    std::string filePath;
+    std::string fileName;
     bool fileIsRead;
     SDL_IOStream *fileStream;
     size_t fileSize;
@@ -37,10 +41,29 @@ typedef struct {
     char *fileBuffer;
 } AppState;
 
+static void SDLCALL callback(void* userdata, const char* const* filelist, int filter)
+{
+    AppState *state = (AppState *)userdata;
+
+    if (!filelist) {
+        SDL_Log("An error occured: %s", SDL_GetError());
+        return;
+    } else if (!*filelist) {
+        SDL_Log("The user did not select any file.");
+        SDL_Log("Most likely, the dialog was canceled.");
+        return;
+    }
+
+    if (*filelist) {
+        SDL_Log("Full path to selected file: '%s'", *filelist);
+        state->filePath = *filelist;
+    }
+}
+
 /* This function runs once at startup. */
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 {
-    AppState *state = (AppState *)SDL_malloc(sizeof(AppState));
+    AppState *state = new AppState();
     if (!state) {
         SDL_Log("Failed to allocate memory for app state: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -121,7 +144,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     init_info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
     ImGui_ImplSDLGPU3_Init(&init_info);
 
-    return SDL_APP_CONTINUE;  /* carry on with the program! */
+    return SDL_APP_CONTINUE;
 }
 
 /* This function runs when a new event (mouse input, keypresses, etc) occurs. */
@@ -131,7 +154,7 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
     if (event->type == SDL_EVENT_QUIT) {
         return SDL_APP_SUCCESS;  /* end the program, reporting success to the OS. */
     }
-    return SDL_APP_CONTINUE;  /* carry on with the program! */
+    return SDL_APP_CONTINUE;
 }
 
 /* This function runs once per frame, and is the heart of the program. */
@@ -171,10 +194,22 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     ImGui_ImplSDLGPU3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
 
-    ImGui::Begin("FPS Display", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+    ImGui::BeginMainMenuBar();
+    if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("Open CSV")) {
+            // Handle file open dialog here
+            SDL_Log("Open CSV file dialog would be implemented here.");
+            SDL_ShowOpenFileDialog(callback, appstate, nullptr, nullptr, 0, nullptr, false);
+        }
+        ImGui::EndMenu();
+    }
+    ImGui::EndMainMenuBar();
+
+    //ImGui::SetNextWindowPos(ImVec2(0, 30), ImGuiCond_Always);
+    //ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, io.DisplaySize.y - 30), ImGuiCond_Always);
+
+    ImGui::Begin("FPS Display", nullptr);
     ImPlot::BeginPlot("FPS");
     ImPlot::PlotBars("FPS", state->fpshistory, 5000);
     ImPlot::EndPlot();
