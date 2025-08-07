@@ -14,6 +14,7 @@
 #include <SDL3/SDL_gpu.h>
 #include <SDL3/SDL_timer.h>
 #include <SDL3/SDL_dialog.h>
+#include <SDL3/SDL_thread.h>
 
 #include "rapidcsv.h"
 #include "console.h"
@@ -38,9 +39,39 @@ typedef struct {
     size_t fileSize;
     size_t bytesRead;
     char* fileBuffer;
+    rapidcsv::Document parsedCsv;
+	bool csvWindowIsOpen;
 } AppState;
 
 static Console* console = nullptr;
+
+// Function to read file in a separate thread using SDL3 file IO
+static int SDLCALL ReadFileThread(void* userdata) {
+    AppState* state = static_cast<AppState*>(userdata);
+
+    // Parse the CSV file
+    try {
+        state->parsedCsv.Load(state->filePath,
+            rapidcsv::LabelParams(0, -1),
+            rapidcsv::SeparatorParams(',', '\n'),
+            rapidcsv::ConverterParams(),
+            rapidcsv::LineReaderParams());
+    }
+    catch (const std::exception& e) {
+        SDL_Log("Error reading file '%s': %s", state->filePath.c_str(), e.what());
+        return -1; // Indicate failure
+	}
+
+    // Get column and row counts
+    size_t colCount = state->parsedCsv.GetColumnCount();
+    size_t rowCount = state->parsedCsv.GetRowCount();
+
+    // Log file info
+    SDL_Log("File '%s' read successfully (%zu columns, %zu rows)", state->filePath.c_str(), colCount, rowCount);
+
+    state->fileIsRead = true;
+    return 0;
+}
 
 static void SDLCALL callback(void* userdata, const char* const* filelist, int filter) {
     AppState* state = (AppState*)userdata;
@@ -58,6 +89,8 @@ static void SDLCALL callback(void* userdata, const char* const* filelist, int fi
     if (*filelist) {
         SDL_Log("Full path to selected file: '%s'", *filelist);
         state->filePath = *filelist;
+		state->fileIsRead = false;
+        SDL_Thread* thread = SDL_CreateThread(ReadFileThread, "FileReader", state);
     }
 }
 
@@ -119,10 +152,14 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+	ImPlot::CreateContext();
+
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
+	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
+	io.IniFilename = NULL; // Disable ini file saving
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -159,37 +196,11 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     AppState* state = (AppState*)appstate;
     io = ImGui::GetIO();
 
-    /*if (!state->fileStream) { // Open a file for reading
-        state->fileStream = SDL_IOFromFile("C:/Users/LOAR02/Source/sdl3-playground/build/Debug/example.csv", "r");
-        if (!state->fileStream) {
-            SDL_Log("Failed to open file: %s", SDL_GetError());
-            return SDL_APP_FAILURE;
-        }
-    }
-    if (!state->fileBuffer) { // Allocate a buffer for reading
-        // Note: In a real application, you would probably want to allocate a buffer based on the file size or use a dynamic buffer.
-        state->fileBuffer = (char*)SDL_malloc(2048); // Allocate a buffer for reading
-        if (!state->fileBuffer) {
-            SDL_Log("Failed to allocate memory: %s", SDL_GetError());
-            return SDL_APP_FAILURE;
-        }
-    }
-    if (SDL_GetIOStatus(state->fileStream) != SDL_IO_STATUS_EOF) {
-        state->bytesRead += SDL_ReadIO(state->fileStream, state->fileBuffer + state->bytesRead, sizeof(state->fileBuffer));
-    }
-    else {
-        state->fileIsRead = true; // File is fully read
-    }
-
-    if (state->fileIsRead) {
-        std::stringstream sstream(state->fileBuffer);
-        rapidcsv::Document doc(sstream, rapidcsv::LabelParams(0, -1), rapidcsv::SeparatorParams(',', '"', '\\'));
-        SDL_Log("CSV Document loaded with %zu rows and %zu columns.", doc.GetRowCount(), doc.GetColumnCount());
-    }*/
-
     ImGui_ImplSDLGPU3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
+
+    ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(ImGuiDockNodeFlags_PassthruCentralNode); // ImGuiDockNodeFlags_PassthruCentralNode allows content to be drawn behind the dockspace
 
     ImGui::BeginMainMenuBar();
     if (ImGui::BeginMenu("File")) {
@@ -202,6 +213,8 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     }
     ImGui::EndMainMenuBar();
 
+    ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_Once); // ImGuiCond_Once prevents it from re-docking every frame if the user moves it
+
     {
         ImGui::Begin("Console");
         if (ImGui::Button("Clear Console")) {
@@ -210,20 +223,136 @@ SDL_AppResult SDL_AppIterate(void* appstate)
         ImGui::SameLine();
         ImGui::Text("Log Count: %d", console->getCount());
         ImGui::Text("Console Output:");
-        std::string consoleOutput;
-        console->getItemsAsString(consoleOutput);
-        ImGui::TextUnformatted(consoleOutput.c_str());
+
+        // Display each log entry with context menu
+        for (int i = 0; i < console->getCount(); ++i) {
+            auto item = console->getItem(i);
+            ImGui::PushID(i);
+            if (ImGui::Selectable(item.text.c_str())) {
+                // Optionally handle selection
+            }
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Copy")) {
+                    ImGui::SetClipboardText(item.text.c_str());
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+        }
         ImGui::End();
     }
 
     if (state->filePath != "") {
-        ImGui::Begin("CSV Plot", nullptr);
+        ImGui::Begin("CSV Plot", &state->csvWindowIsOpen);
         ImGui::Text("File Path: %s", state->filePath.c_str());
+        
+        // Show a table with the first few rows of the CSV file
+        if (state->fileIsRead) {
+            size_t colCount = state->parsedCsv.GetColumnCount();
+            size_t rowCount = state->parsedCsv.GetRowCount();
+            size_t previewRows = (rowCount < 15) ? rowCount : 10;
+
+            if (ImGui::BeginTable("CSVTable", static_cast<int>(colCount), ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                // Header row
+                ImGui::TableNextRow();
+                for (size_t col = 0; col < colCount; ++col) {
+                    ImGui::TableSetColumnIndex(static_cast<int>(col));
+                    ImGui::TextUnformatted(state->parsedCsv.GetColumnName(col).c_str());
+                }
+                // Data rows
+                for (size_t row = 0; row < previewRows; ++row) {
+                    ImGui::TableNextRow();
+                    for (size_t col = 0; col < colCount; ++col) {
+                        ImGui::TableSetColumnIndex(static_cast<int>(col));
+                        try {
+                            ImGui::TextUnformatted(state->parsedCsv.GetCell<std::string>(col, row).c_str());
+                        } catch (...) {
+                            ImGui::TextUnformatted("");
+                        }
+                    }
+                }
+                ImGui::EndTable();
+                if (rowCount > previewRows) {
+                    ImGui::Text("... (%zu more rows)", rowCount - previewRows);
+                }
+            }
+        }
+        else {
+            ImGui::Text("Loading file...");
+		}
         ImGui::End();
     }
 
+    
+    // --- ImPlot CSV Plotting ---
+    if (state->filePath != "" && state->fileIsRead && state->parsedCsv.GetColumnCount() > 1) {
+        ImGui::Begin("CSV Plot", &state->csvWindowIsOpen);
+        ImGui::Text("File Path: %s", state->filePath.c_str());
+
+        // Plotting section
+        static int xCol = 0;
+        static int yCol = 1;
+        size_t colCount = state->parsedCsv.GetColumnCount();
+        size_t rowCount = state->parsedCsv.GetRowCount();
+        size_t plotRows = (rowCount < 1000000) ? rowCount : 1000; // Limit for performance
+
+        // Column selection
+        ImGui::Separator();
+        ImGui::Text("Select columns to plot:");
+        ImGui::PushID("xcol");
+        if (ImGui::BeginCombo("X Axis", state->parsedCsv.GetColumnName(xCol).c_str())) {
+            for (size_t i = 0; i < colCount; ++i) {
+                bool selected = (xCol == (int)i);
+                if (ImGui::Selectable(state->parsedCsv.GetColumnName(i).c_str(), selected))
+                    xCol = (int)i;
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopID();
+        ImGui::SameLine();
+        ImGui::PushID("ycol");
+        if (ImGui::BeginCombo("Y Axis", state->parsedCsv.GetColumnName(yCol).c_str())) {
+            for (size_t i = 0; i < colCount; ++i) {
+                bool selected = (yCol == (int)i);
+                if (ImGui::Selectable(state->parsedCsv.GetColumnName(i).c_str(), selected))
+                    yCol = (int)i;
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopID();
+
+        // Prepare data
+        static std::vector<double> xData, yData;
+        xData.resize(plotRows);
+        yData.resize(plotRows);
+        bool validData = true;
+        for (size_t i = 0; i < plotRows; ++i) {
+            try {
+                xData[i] = std::stod(state->parsedCsv.GetCell<std::string>(xCol, i));
+                yData[i] = std::stod(state->parsedCsv.GetCell<std::string>(yCol, i));
+            } catch (...) {
+                validData = false;
+                break;
+            }
+        }
+
+        ImGui::Separator();
+        if (validData) {
+            if (ImPlot::BeginPlot("CSV Data Plot")) {
+                ImPlot::PlotLine("Data", xData.data(), yData.data(), (int)plotRows);
+                ImPlot::EndPlot();
+            }
+        } else {
+            ImGui::TextColored(ImVec4(1,0,0,1), "Non-numeric data in selected columns.");
+        }
+        ImGui::End();
+    }
     // Rendering
     ImGui::Render();
+    ImGui::UpdatePlatformWindows();
+    ImGui::RenderPlatformWindowsDefault();
     ImDrawData* draw_data = ImGui::GetDrawData();
     const bool is_minimized = (draw_data->DisplaySize.x <= 0.0f || draw_data->DisplaySize.y <= 0.0f);
 
