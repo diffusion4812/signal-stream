@@ -20,4 +20,6 @@ add_executable(sdl-playground WIN32
     C:/Users/LOAR02/Source/Libraries/implot-master/implot.cpp
     C:/Users/LOAR02/Source/Libraries/implot-master/implot_items.cpp)
 
-    target_link_libraries(sdl-playground SDL3)
+target_link_libraries(sdl-playground SDL3)
+
+set_property(TARGET sdl-playground PROPERTY CXX_STANDARD 17)
