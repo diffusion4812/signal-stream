@@ -54,6 +54,8 @@ typedef struct {
 
 static Console* console = nullptr;
 
+
+
 // Function to read file in a separate thread using SDL3 file IO
 static int SDLCALL ReadFileThread(void* userdata) {
     CSVFile* file = static_cast<CSVFile*>(userdata);
@@ -188,7 +190,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-	ImPlot::CreateContext();
+    ImPlot::CreateContext();
 
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
@@ -257,15 +259,25 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
 
-    //ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(ImGuiDockNodeFlags_PassthruCentralNode); // ImGuiDockNodeFlags_PassthruCentralNode allows content to be drawn behind the dockspace
-
     ImGui::BeginMainMenuBar();
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("Open CSV")) {
-            // Handle file open dialog here
-            SDL_Log("Open CSV file dialog would be implemented here.");
             SDL_ShowOpenFileDialog(callback, appstate, nullptr, nullptr, 0, nullptr, false);
         }
+        if (ImGui::MenuItem("Open TCP/IP")) {
+            // Placeholder for future TCP/IP functionality
+            SDL_Log("TCP/IP functionality not implemented yet.");
+        }
+        if (ImGui::MenuItem("Open Serial")) {
+            // Placeholder for future Serial functionality
+            SDL_Log("Serial functionality not implemented yet.");
+        }
+        if (ImGui::MenuItem("Exit")) {
+            return SDL_APP_SUCCESS;
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Tools")) {
         if (ImGui::MenuItem("Open Console")) {
             state->consoleIsOpen = true;
         }
@@ -347,12 +359,22 @@ SDL_AppResult SDL_AppIterate(void* appstate)
 
         // --- ImPlot CSV Plotting ---
         if (file.fileIsRead && file.parsedCsv->GetColumnCount() > 1) {
-            //ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_Once);
             ImGui::Begin(file.filePath.filename().string().c_str(), &file.csvWindowIsOpen);
             if (ImGui::Button("Display Table")) {
                 file.csvTableWindowIsOpen = !file.csvTableWindowIsOpen;
             }
 
+            ImGui::BeginChild("SignalSelection", ImVec2(ImGui::GetContentRegionAvail().x * 0.2f, 0), true);
+            ImGui::BeginTable("SignalSelectionTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+            ImGui::TableSetupColumn("Signal Name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("X-Axis");
+            ImGui::TableSetupColumn("Y-Axis");
+            ImGui::TableNextRow();
+            ImGui::EndTable();
+            ImGui::EndChild();
+
+            ImGui::SameLine();
+            ImGui::BeginChild("CSVPlotting", ImVec2(0, 0), true);
             // Plotting section
             static int xCol = 0;
             static int yCol = 1;
@@ -405,7 +427,6 @@ SDL_AppResult SDL_AppIterate(void* appstate)
 
             ImPlot::MapInputReverse();
 
-            ImGui::Separator();
             if (validData) {
                 if (ImPlot::BeginPlot("CSV Data Plot", ImVec2(-1.0, -1.0))) {
                     ImPlot::PlotLine("Data", xData.data(), yData.data(), (int)plotRows);
@@ -415,6 +436,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
             else {
                 ImGui::TextColored(ImVec4(1, 0, 0, 1), "Non-numeric data in selected columns.");
             }
+            ImGui::EndChild();
             ImGui::End();
         }
     }
