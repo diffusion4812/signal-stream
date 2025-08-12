@@ -1,3 +1,3 @@
-# sdl3-playground
+# SDL Playground
 
-change
+- [ ] Add FPS idling

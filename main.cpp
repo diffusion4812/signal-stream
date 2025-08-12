@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string>
 #include <filesystem>
+#include <deque>
 
 #define SDL_MAIN_USE_CALLBACKS 1  /* use the callbacks instead of main() */
 #include <SDL3/SDL.h>
@@ -35,6 +36,7 @@ typedef struct {
     size_t fileSize;
     size_t bytesRead;
     rapidcsv::Document* parsedCsv;
+    std::deque<std::deque<bool>> selectedAxis;
     bool csvTableWindowIsOpen;
     bool csvWindowIsOpen;
 } CSVFile;
@@ -79,6 +81,11 @@ static int SDLCALL ReadFileThread(void* userdata) {
     // Get column and row counts
     size_t colCount = file->parsedCsv->GetColumnCount();
     size_t rowCount = file->parsedCsv->GetRowCount();
+
+    file->selectedAxis.resize(2);
+    for (auto& axis : file->selectedAxis) {
+        axis.resize(colCount, false);
+    }
 
     // Log file info
     SDL_Log("File '%s' read successfully (%zu columns, %zu rows)", file->filePath.string().c_str(), colCount, rowCount);
@@ -313,7 +320,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
         ImGui::End();
     }
 
-    for (CSVFile file : state->csvFiles) {
+    for (auto &file : state->csvFiles) {
         if (file.csvTableWindowIsOpen) {
             //ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_Once);
             ImGui::Begin(file.filePath.filename().string().c_str(), &file.csvTableWindowIsOpen, ImGuiWindowFlags_AlwaysAutoResize);
@@ -364,79 +371,78 @@ SDL_AppResult SDL_AppIterate(void* appstate)
                 file.csvTableWindowIsOpen = !file.csvTableWindowIsOpen;
             }
 
-            ImGui::BeginChild("SignalSelection", ImVec2(ImGui::GetContentRegionAvail().x * 0.2f, 0), true);
-            ImGui::BeginTable("SignalSelectionTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
-            ImGui::TableSetupColumn("Signal Name", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("X-Axis");
-            ImGui::TableSetupColumn("Y-Axis");
-            ImGui::TableNextRow();
-            ImGui::EndTable();
-            ImGui::EndChild();
+            {
+                ImGui::BeginChild("SignalSelection", ImVec2(ImGui::GetContentRegionAvail().x * 0.2f, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
+                ImGui::BeginTable("SignalSelectionTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+                ImGui::TableSetupColumn("Signal Name", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("X-Axis", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableSetupColumn("Y-Axis", ImGuiTableColumnFlags_WidthFixed);
+                for (size_t i = 0; i < file.parsedCsv->GetColumnCount(); ++i) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(file.parsedCsv->GetColumnName(i).c_str());
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Checkbox(std::string("##xaxis" + std::to_string(i)).c_str(), &file.selectedAxis[0][i]);
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Checkbox(std::string("##yaxis" + std::to_string(i)).c_str(), &file.selectedAxis[1][i]);
+                }
+                ImGui::TableNextRow();
+                ImGui::EndTable();
+                ImGui::EndChild();
+            }
 
             ImGui::SameLine();
-            ImGui::BeginChild("CSVPlotting", ImVec2(0, 0), true);
-            // Plotting section
-            static int xCol = 0;
-            static int yCol = 1;
-            size_t colCount = file.parsedCsv->GetColumnCount();
-            size_t rowCount = file.parsedCsv->GetRowCount();
-            size_t plotRows = (rowCount < 1000000) ? rowCount : 1000; // Limit for performance
 
-            // Column selection
-            ImGui::Separator();
-            ImGui::Text("Select columns to plot:");
-            ImGui::PushID("xcol");
-            if (ImGui::BeginCombo("X Axis", file.parsedCsv->GetColumnName(xCol).c_str())) {
-                for (size_t i = 0; i < colCount; ++i) {
-                    bool selected = (xCol == (int)i);
-                    if (ImGui::Selectable(file.parsedCsv->GetColumnName(i).c_str(), selected))
-                        xCol = (int)i;
-                    if (selected) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::PopID();
-            ImGui::SameLine();
-            ImGui::PushID("ycol");
-            if (ImGui::BeginCombo("Y Axis", file.parsedCsv->GetColumnName(yCol).c_str())) {
-                for (size_t i = 0; i < colCount; ++i) {
-                    bool selected = (yCol == (int)i);
-                    if (ImGui::Selectable(file.parsedCsv->GetColumnName(i).c_str(), selected))
-                        yCol = (int)i;
-                    if (selected) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::PopID();
+            {
+                static int xCol = 0; // Default to first column for X-axis
+                static int yCol = 1; // Default to second column for Y-axis
 
-            // Prepare data
-            static std::vector<double> xData, yData;
-            xData.resize(plotRows);
-            yData.resize(plotRows);
-            bool validData = true;
-            for (size_t i = 0; i < plotRows; ++i) {
-                try {
-                    xData[i] = std::stod(file.parsedCsv->GetCell<std::string>(xCol, i));
-                    yData[i] = std::stod(file.parsedCsv->GetCell<std::string>(yCol, i));
+                ImGui::BeginChild("CSVPlotting", ImVec2(0, 0), ImGuiChildFlags_Borders);
+                
+                for (int i = 0; i < file.selectedAxis[0].size(); ++i) {
+                    if (file.selectedAxis[0][i]) {
+                        xCol = i;
+                    }
+
+                    if (file.selectedAxis[1][i]) {
+                        yCol = i;
+                    }
                 }
-                catch (...) {
-                    validData = false;
-                    break;
+
+                size_t colCount = file.parsedCsv->GetColumnCount();
+                size_t rowCount = file.parsedCsv->GetRowCount();
+                size_t plotRows = (rowCount < 1000000) ? rowCount : 1000; // Limit for performance
+
+                // Prepare data
+                static std::vector<double> xData, yData;
+                xData.resize(plotRows);
+                yData.resize(plotRows);
+                bool validData = true;
+                for (size_t i = 0; i < plotRows; ++i) {
+                    try {
+                        xData[i] = std::stod(file.parsedCsv->GetCell<std::string>(xCol, i));
+                        yData[i] = std::stod(file.parsedCsv->GetCell<std::string>(yCol, i));
+                    }
+                    catch (...) {
+                        validData = false;
+                        break;
+                    }
                 }
+
+                ImPlot::MapInputReverse();
+
+                if (validData) {
+                    if (ImPlot::BeginPlot("CSV Data Plot", ImVec2(-1.0, -1.0))) {
+                        ImPlot::PlotLine("Data", xData.data(), yData.data(), (int)plotRows);
+                        ImPlot::EndPlot();
+                    }
+                }
+                else {
+                    ImGui::TextColored(ImVec4(1, 0, 0, 1), "Non-numeric data in selected columns.");
+                }
+                ImGui::EndChild();
             }
 
-            ImPlot::MapInputReverse();
-
-            if (validData) {
-                if (ImPlot::BeginPlot("CSV Data Plot", ImVec2(-1.0, -1.0))) {
-                    ImPlot::PlotLine("Data", xData.data(), yData.data(), (int)plotRows);
-                    ImPlot::EndPlot();
-                }
-            }
-            else {
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), "Non-numeric data in selected columns.");
-            }
-            ImGui::EndChild();
             ImGui::End();
         }
     }
