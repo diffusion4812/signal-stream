@@ -8,6 +8,8 @@
 #include <string>
 #include <filesystem>
 #include <deque>
+#include <vector>
+#include <memory>
 
 #define SDL_MAIN_USE_CALLBACKS 1  /* use the callbacks instead of main() */
 #include <SDL3/SDL.h>
@@ -20,26 +22,10 @@
 #include <SDL3/SDL_mutex.h>
 
 #include "rapidcsv.h"
+
 #include "console.h"
-
-static SDL_Window* window = NULL;
-static SDL_Renderer* renderer = NULL;
-static SDL_GPUDevice* gpu_device = NULL;
-static ImGuiIO io;
-
-SDL_RWLock* csvFilesLock;
-
-typedef struct {
-    std::filesystem::path filePath;
-    bool fileIsRead;
-    SDL_IOStream* fileStream;
-    size_t fileSize;
-    size_t bytesRead;
-    rapidcsv::Document* parsedCsv;
-    std::deque<std::deque<bool>> selectedAxis;
-    bool csvTableWindowIsOpen;
-    bool csvWindowIsOpen;
-} CSVFile;
+#include "window.h"
+#include "csv.h"
 
 typedef struct {
     Console* console;
@@ -50,13 +36,20 @@ typedef struct {
     Uint64 lastTime;
     double frequency;
 
-	std::vector<CSVFile> csvFiles;
+    std::vector<CSVFile> csvFiles;
     bool consoleIsOpen;
+
+    std::vector<std::unique_ptr<Window>> windows;
 } AppState;
 
+static SDL_Window* window = NULL;
+static SDL_Renderer* renderer = NULL;
+static SDL_GPUDevice* gpu_device = NULL;
+static ImGuiIO io;
+
+SDL_RWLock* csvFilesLock;
+
 static Console* console = nullptr;
-
-
 
 // Function to read file in a separate thread using SDL3 file IO
 static int SDLCALL ReadFileThread(void* userdata) {
@@ -114,6 +107,8 @@ static void prepAndReadFile(void* userdata, const char* filepath) {
 
     SDL_Thread* thread = SDL_CreateThread(ReadFileThread, NULL, file);
     SDL_DetachThread(thread);
+
+    state->windows.push_back(std::make_unique<Window_Analysis>(file));
 }
 
 static void SDLCALL callback(void* userdata, const char* const* filelist, int filter) {
@@ -178,6 +173,13 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
         return SDL_APP_FAILURE;
     }
 
+    // ... (load your icon image into an SDL_Surface)
+    SDL_Surface* icon_surface = SDL_LoadBMP("icon.bmp"); // Example: loading a BMP
+    if (icon_surface) {
+        SDL_SetWindowIcon(window, icon_surface);
+        SDL_DestroySurface(icon_surface); // Free the surface after setting the icon
+    }
+
     // Create GPU Device
     gpu_device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB, true, nullptr);
     if (gpu_device == nullptr)
@@ -202,11 +204,11 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
 #ifdef USE_PLATFORM_WINDOWS
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Viewports
 #endif
-	io.IniFilename = NULL; // Disable ini file saving
+    io.IniFilename = NULL; // Disable ini file saving
 
     // Setup Dear ImGui style
     if (SDL_GetSystemTheme() == SDL_SYSTEM_THEME_DARK) {
@@ -228,9 +230,11 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     init_info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
     ImGui_ImplSDLGPU3_Init(&init_info);
 
-	state->fps = 0.0;
-	state->frequency = SDL_GetPerformanceFrequency();
-	state->lastTime = SDL_GetPerformanceCounter();
+    state->fps = 0.0;
+    state->frequency = SDL_GetPerformanceFrequency();
+    state->lastTime = SDL_GetPerformanceCounter();
+
+    state->windows.push_back(std::make_unique<Window_FPS>(&state->fps));
 
     return SDL_APP_CONTINUE;
 }
@@ -240,16 +244,16 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event)
     ImGui_ImplSDL3_ProcessEvent(event);
     switch (event->type) {
     case SDL_EVENT_DROP_FILE:
-		SDL_Log("File dropped: %s", event->drop.data);
-		prepAndReadFile(appstate, event->drop.data);
-		return SDL_APP_CONTINUE;
+        SDL_Log("File dropped: %s", event->drop.data);
+        prepAndReadFile(appstate, event->drop.data);
+        return SDL_APP_CONTINUE;
     case SDL_EVENT_SYSTEM_THEME_CHANGED:
         if (SDL_GetSystemTheme() == SDL_SYSTEM_THEME_DARK) {
             ImGui::StyleColorsDark();
         } else {
             ImGui::StyleColorsLight();
-		}
-		return SDL_APP_CONTINUE;
+        }
+        return SDL_APP_CONTINUE;
     case SDL_EVENT_QUIT:
         SDL_Log("Received quit event.");
         return SDL_APP_SUCCESS;
@@ -286,44 +290,19 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     }
     if (ImGui::BeginMenu("Tools")) {
         if (ImGui::MenuItem("Open Console")) {
-            state->consoleIsOpen = true;
+            state->windows.push_back(std::make_unique<Window_Console>(state->console, &state->consoleIsOpen));
         }
         ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
 
-    if (state->consoleIsOpen) {
-        //ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_Once);
-        ImGui::Begin("Console", &state->consoleIsOpen);
-        if (ImGui::Button("Clear Console")) {
-            console->removeAll();
-        }
-        ImGui::SameLine();
-        ImGui::Text("Log Count: %d", console->getCount());
-        ImGui::Text("Console Output:");
-
-        // Display each log entry with context menu
-        for (int i = 0; i < console->getCount(); ++i) {
-            auto item = console->getItem(i);
-            ImGui::PushID(i);
-            if (ImGui::Selectable(item.text.c_str())) {
-                // Optionally handle selection
-            }
-            if (ImGui::BeginPopupContextItem()) {
-                if (ImGui::MenuItem("Copy")) {
-                    ImGui::SetClipboardText(item.text.c_str());
-                }
-                ImGui::EndPopup();
-            }
-            ImGui::PopID();
-        }
-        ImGui::End();
+    for (auto& window : state->windows) {
+        window->draw();
     }
 
     for (auto &file : state->csvFiles) {
         if (file.csvTableWindowIsOpen) {
-            //ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_Once);
-            ImGui::Begin(file.filePath.filename().string().c_str(), &file.csvTableWindowIsOpen, ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Begin(file.filePath.filename().string().c_str(), &file.csvTableWindowIsOpen);
             ImGui::Text("File Path: %s", file.filePath.string().c_str());
 
             // Show a table with the first few rows of the CSV file
@@ -364,93 +343,6 @@ SDL_AppResult SDL_AppIterate(void* appstate)
             ImGui::End();
         }
 
-        // --- ImPlot CSV Plotting ---
-        if (file.fileIsRead && file.parsedCsv->GetColumnCount() > 1) {
-            ImGui::Begin(file.filePath.filename().string().c_str(), &file.csvWindowIsOpen);
-            if (ImGui::Button("Display Table")) {
-                file.csvTableWindowIsOpen = !file.csvTableWindowIsOpen;
-            }
-
-            {
-                ImGui::BeginChild("SignalSelection", ImVec2(ImGui::GetContentRegionAvail().x * 0.2f, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
-                ImGui::BeginTable("SignalSelectionTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
-                ImGui::TableSetupColumn("Signal Name", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("X-Axis", ImGuiTableColumnFlags_WidthFixed);
-                ImGui::TableSetupColumn("Y-Axis", ImGuiTableColumnFlags_WidthFixed);
-                for (size_t i = 0; i < file.parsedCsv->GetColumnCount(); ++i) {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextUnformatted(file.parsedCsv->GetColumnName(i).c_str());
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Checkbox(std::string("##xaxis" + std::to_string(i)).c_str(), &file.selectedAxis[0][i]);
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Checkbox(std::string("##yaxis" + std::to_string(i)).c_str(), &file.selectedAxis[1][i]);
-                }
-                ImGui::TableNextRow();
-                ImGui::EndTable();
-                ImGui::EndChild();
-            }
-
-            ImGui::SameLine();
-
-            {
-                static int xCol = 0; // Default to first column for X-axis
-                static int yCol = 1; // Default to second column for Y-axis
-
-                ImGui::BeginChild("CSVPlotting", ImVec2(0, 0), ImGuiChildFlags_Borders);
-                
-                for (int i = 0; i < file.selectedAxis[0].size(); ++i) {
-                    if (file.selectedAxis[0][i]) {
-                        xCol = i;
-                    }
-
-                    if (file.selectedAxis[1][i]) {
-                        yCol = i;
-                    }
-                }
-
-                size_t colCount = file.parsedCsv->GetColumnCount();
-                size_t rowCount = file.parsedCsv->GetRowCount();
-                size_t plotRows = (rowCount < 1000000) ? rowCount : 1000; // Limit for performance
-
-                // Prepare data
-                static std::vector<double> xData, yData;
-                xData.resize(plotRows);
-                yData.resize(plotRows);
-                bool validData = true;
-                for (size_t i = 0; i < plotRows; ++i) {
-                    try {
-                        xData[i] = std::stod(file.parsedCsv->GetCell<std::string>(xCol, i));
-                        yData[i] = std::stod(file.parsedCsv->GetCell<std::string>(yCol, i));
-                    }
-                    catch (...) {
-                        validData = false;
-                        break;
-                    }
-                }
-
-                ImPlot::MapInputReverse();
-
-                if (validData) {
-                    if (ImPlot::BeginPlot("CSV Data Plot", ImVec2(-1.0, -1.0))) {
-                        ImPlot::PlotLine("Data", xData.data(), yData.data(), (int)plotRows);
-                        ImPlot::EndPlot();
-                    }
-                }
-                else {
-                    ImGui::TextColored(ImVec4(1, 0, 0, 1), "Non-numeric data in selected columns.");
-                }
-                ImGui::EndChild();
-            }
-
-            ImGui::End();
-        }
-    }
-
-    {
-        ImGui::Begin("FPS", nullptr, ImGuiWindowFlags_NoDecoration);
-        ImGui::Text("%f", state->fps);
-        ImGui::End();
     }
 
     // Rendering

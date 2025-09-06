@@ -10,7 +10,6 @@ class Console {
     } LogItem;
 
 public:
-    void console();
     void log(int prio, std::string text);
     int getCount() const;
     LogItem getItem(int index) const;

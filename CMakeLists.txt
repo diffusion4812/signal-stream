@@ -11,6 +11,9 @@ link_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/lib)
 add_executable(sdl-playground WIN32
     main.cpp
     console.cpp
+    window.cpp
+    csv.cpp
+    sdl-playground.rc
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui.cpp
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_draw.cpp
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_widgets.cpp

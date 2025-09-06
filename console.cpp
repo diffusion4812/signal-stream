@@ -1,8 +1,5 @@
 #include "console.h"
 
-void Console::console() {
-}
-
 void Console::log(int prio, std::string text) {
     LogItem logItem;
     logItem.prio = prio;
