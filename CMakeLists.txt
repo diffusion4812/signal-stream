@@ -5,14 +5,16 @@ include_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/include)
 include_directories(C:/Users/LOAR02/Source/Libraries/imgui-docking)
 include_directories(C:/Users/LOAR02/Source/Libraries/imgui-docking/backends)
 include_directories(C:/Users/LOAR02/Source/Libraries/implot-master)
+include_directories($ENV{BOOST_ROOT})
 
 link_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/lib)
 
 add_executable(sdl-playground WIN32
     main.cpp
+    csv.cpp
     console.cpp
     window.cpp
-    csv.cpp
+    tcpip.cpp
     sdl-playground.rc
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui.cpp
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_draw.cpp

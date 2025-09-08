@@ -23,24 +23,11 @@
 
 #include "rapidcsv.h"
 
+#include "appstate.h"
 #include "console.h"
 #include "window.h"
 #include "csv.h"
-
-typedef struct {
-    Console* console;
-
-    double fps;
-    double* fpshistory;
-    Uint64 frameCount;
-    Uint64 lastTime;
-    double frequency;
-
-    std::vector<CSVFile> csvFiles;
-    bool consoleIsOpen;
-
-    std::vector<std::unique_ptr<Window>> windows;
-} AppState;
+#include "tcpip.h"
 
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
@@ -51,64 +38,10 @@ SDL_RWLock* csvFilesLock;
 
 static Console* console = nullptr;
 
-// Function to read file in a separate thread using SDL3 file IO
-static int SDLCALL ReadFileThread(void* userdata) {
-    CSVFile* file = static_cast<CSVFile*>(userdata);
-
-    // Parse the CSV file
-    try {
-        SDL_Log("Opening file: %s", file->filePath.filename().string().c_str());
-        file->parsedCsv = new rapidcsv::Document(
-            file->filePath.string().c_str(),
-            rapidcsv::LabelParams(0, -1),
-            rapidcsv::SeparatorParams(',', '\n'),
-            rapidcsv::ConverterParams(),
-            rapidcsv::LineReaderParams()
-        );
-    }
-    catch (const std::exception& e) {
-        SDL_Log("Error reading file '%s': %s", file->filePath.string(), e.what());
-        return -1;
-    }
-
-    // Get column and row counts
-    size_t colCount = file->parsedCsv->GetColumnCount();
-    size_t rowCount = file->parsedCsv->GetRowCount();
-
-    file->selectedAxis.resize(2);
-    for (auto& axis : file->selectedAxis) {
-        axis.resize(colCount, false);
-    }
-
-    // Log file info
-    SDL_Log("File '%s' read successfully (%zu columns, %zu rows)", file->filePath.string().c_str(), colCount, rowCount);
-
-    file->fileIsRead = true;
-    file->csvWindowIsOpen = true;
-    file->csvTableWindowIsOpen = false;
+static int SDLCALL IOThread(void* userdata) {
+    boost::asio::io_context* io_context = static_cast<boost::asio::io_context*>(userdata);
+    io_context->run();
     return 0;
-}
-
-static void prepAndReadFile(void* userdata, const char* filepath) {
-    AppState* state = (AppState*)userdata;
-
-    SDL_Log("Full path to selected file: '%s'", filepath);
-
-    state->csvFiles.push_back(CSVFile());
-    CSVFile *file = &state->csvFiles.back(); // Get last added file
-    file->filePath = std::filesystem::path(filepath);
-    file->fileIsRead = false;
-    file->fileStream = nullptr;
-    file->fileSize = 0;
-    file->bytesRead = 0;
-    file->parsedCsv = nullptr;
-    file->csvTableWindowIsOpen = false;
-    file->csvWindowIsOpen = false;
-
-    SDL_Thread* thread = SDL_CreateThread(ReadFileThread, NULL, file);
-    SDL_DetachThread(thread);
-
-    state->windows.push_back(std::make_unique<Window_Analysis>(file));
 }
 
 static void SDLCALL callback(void* userdata, const char* const* filelist, int filter) {
@@ -236,6 +169,10 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     state->windows.push_back(std::make_unique<Window_FPS>(&state->fps));
 
+    state->io_context = new boost::asio::io_context();
+    state->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(state->io_context->get_executor());
+    state->ioThread = SDL_CreateThread(IOThread, "IOThread", state->io_context);
+
     return SDL_APP_CONTINUE;
 }
 
@@ -278,6 +215,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
         if (ImGui::MenuItem("Open TCP/IP")) {
             // Placeholder for future TCP/IP functionality
             SDL_Log("TCP/IP functionality not implemented yet.");
+            state->server = new Server(*state->io_context, 26201);
         }
         if (ImGui::MenuItem("Open Serial")) {
             // Placeholder for future Serial functionality

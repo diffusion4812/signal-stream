@@ -16,3 +16,6 @@ typedef struct {
     bool csvTableWindowIsOpen;
     bool csvWindowIsOpen;
 } CSVFile;
+
+int SDLCALL ReadFileThread(void* userdata);
+void prepAndReadFile(void* userdata, const char* filepath);

@@ -1,10 +1,9 @@
 #pragma once
 
+#include "csv.h"
 #include <imgui.h>
 #include "implot.h"
-
 #include "console.h"
-#include "csv.h"
 
 class Window {
 public:
