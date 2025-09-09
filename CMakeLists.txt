@@ -11,6 +11,7 @@ link_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/lib)
 
 add_executable(sdl-playground WIN32
     main.cpp
+    buffer.cpp
     csv.cpp
     console.cpp
     window.cpp
