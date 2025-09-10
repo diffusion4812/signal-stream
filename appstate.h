@@ -5,6 +5,7 @@
 #include "console.h"
 #include <boost/asio.hpp>
 #include "tcpip.h"
+#include "buffer.h"
 
 typedef struct {
     Console* console;
@@ -22,7 +23,9 @@ typedef struct {
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     SDL_Thread* ioThread;
 
-    Server* server;
+    SPSC_CircularBuffer<int>* buffer_;
 
     std::vector<std::unique_ptr<Window>> windows;
+    std::vector<std::unique_ptr<Server>> servers;
+    std::vector<std::unique_ptr<Session>> sessions;
 } AppState;

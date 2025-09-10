@@ -173,6 +173,8 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     state->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(state->io_context->get_executor());
     state->ioThread = SDL_CreateThread(IOThread, "IOThread", state->io_context);
 
+    state->buffer_ = new SPSC_CircularBuffer<int>(1024);
+
     return SDL_APP_CONTINUE;
 }
 
@@ -215,7 +217,8 @@ SDL_AppResult SDL_AppIterate(void* appstate)
         if (ImGui::MenuItem("Open TCP/IP")) {
             // Placeholder for future TCP/IP functionality
             SDL_Log("TCP/IP functionality not implemented yet.");
-            state->server = new Server(*state->io_context, 26201);
+            state->servers.push_back(std::make_unique<Server>(*state->io_context, 26201, state->buffer_));
+            state->windows.push_back(std::make_unique<Window_Live>(state->buffer_));
         }
         if (ImGui::MenuItem("Open Serial")) {
             // Placeholder for future Serial functionality
