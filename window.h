@@ -60,11 +60,11 @@ public:
             if (slideTimer >= slideDuration) {
                 slideTimer = slideDuration;
                 isSliding = false; // Movement complete
-                slidingIn = false;
                 if (slidingOut) {
                     visible = false; // Hide after sliding out
-                    slidingOut = false;
                 }
+                slidingIn = false;
+                slidingOut = false;
             }
         }
 
@@ -102,27 +102,26 @@ public:
                 ImGuiWindowFlags_NoInputs |
                 ImGuiWindowFlags_NoFocusOnAppearing |
                 ImGuiWindowFlags_NoBringToFrontOnFocus;
-
+    
             ImGui::SetNextWindowPos(curPos, ImGuiCond_Always);
             ImGui::SetNextWindowSize(panelSize, ImGuiCond_Always);
 
-            ImGui::Begin("SlidingPanel", nullptr, flags);
-            // Panel contents
-            ImGui::Text("Sliding panel content here.");
-            if (ImGui::Button("Close")) {
-                StartSlideOut();
+            ImGui::Begin("Recent Logs");
+            for (int i = 0; i < mConsole->getCountRecent(); ++i) {
+                auto item = mConsole->getItemRecent(i);
+                ImGui::Text("%s", item.text.c_str());
             }
             ImGui::End();
         }
 
         mConsole->updateRecentlyAddedItems(); // Organise recently added items
         if (mConsole->getCountRecent() > 0) {
-            ImGui::Begin("Recent Logs");
-            for (int i = 0; i < mConsole->getCountRecent(); ++i) {
-                auto item = mConsole->getItem(i);
-                ImGui::Text("%s", item.text.c_str());
-            }
-            ImGui::End();
+            if (!isSliding && !visible)
+                StartSlideIn(); // One-shot start sliding trigger
+        }
+        else {
+            if (!isSliding && visible)
+                StartSlideOut(); // One-shot start sliding trigger
         }
     }
 
@@ -160,12 +159,12 @@ public:
 private:
     Console* mConsole;
     bool* mConsoleIsOpen;
-    float slideTimer;            // current elapsed time for the slide
+    float slideTimer;     // current elapsed time for the slide
     float slideDuration;  // seconds for full slide-in
-    bool slidingIn;             // set true to start slide-in
-    bool slidingOut;             // set true to start slide-in
-    bool visible;               // whether the panel is visible (should remain after slide completes)
-    bool isSliding;            // one-shot trigger to start sliding
+    bool slidingIn;       // set true to start slide-in
+    bool slidingOut;      // set true to start slide-in
+    bool visible;         // whether the panel is visible (should remain after slide completes)
+    bool isSliding;       // one-shot trigger to start sliding
 };
 
 class Window_FPS : public Window {

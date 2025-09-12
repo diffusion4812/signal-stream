@@ -38,6 +38,10 @@ Console::LogItem Console::getItem(int index) const {
     return logItems[index];
 }
 
+Console::LogItem Console::getItemRecent(int index) const {
+    return recentlyAddedItems[index];
+}
+
 void Console::removeItem(int index) {
     logItems.erase(logItems.begin() + index);
 }

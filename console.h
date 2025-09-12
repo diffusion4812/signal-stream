@@ -18,6 +18,7 @@ public:
     int getCount() const;
     int getCountRecent() const;
     LogItem getItem(int index) const;
+    LogItem getItemRecent(int index) const;
     void removeItem(int index);
     void removeAll();
     void getItemsAsString(std::string& out) const;

@@ -35,8 +35,6 @@ static SDL_Renderer* renderer = NULL;
 static SDL_GPUDevice* gpu_device = NULL;
 static ImGuiIO io;
 
-SDL_RWLock* csvFilesLock;
-
 static const uint64_t idleThresholdNS = 3000000000;
 static const uint64_t minFrameTimeNS = 2000000; // 2ms minimum frame time to avoid busy-waiting
 static const double activeFPS = 60.0;
@@ -117,14 +115,9 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     *appstate = state;
 
     state->csvFiles.reserve(10);
-
     state->console = new Console();
-
-    csvFilesLock = SDL_CreateRWLock();
-
     SDL_SetLogOutputFunction(appSDL_LogOutputFunction, state);
 
-    // Setup SDL
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) != 0)
     {
         SDL_Log("Error: SDL_Init(): %s\n", SDL_GetError());
@@ -262,8 +255,6 @@ SDL_AppResult SDL_AppIterate(void* appstate)
             SDL_ShowOpenFileDialog(callback, appstate, nullptr, nullptr, 0, nullptr, false);
         }
         if (ImGui::MenuItem("Open TCP/IP")) {
-            // Placeholder for future TCP/IP functionality
-            SDL_Log("TCP/IP functionality not implemented yet.");
             state->servers.push_back(std::make_unique<Server>(*state->io_context, 26201, state->buffer_));
             state->windows.push_back(std::make_unique<Window_Live>(state->buffer_));
         }
