@@ -10,6 +10,7 @@
 #include <deque>
 #include <vector>
 #include <memory>
+#include <chrono>
 
 #define SDL_MAIN_USE_CALLBACKS 1  /* use the callbacks instead of main() */
 #include <SDL3/SDL.h>
@@ -36,7 +37,10 @@ static ImGuiIO io;
 
 SDL_RWLock* csvFilesLock;
 
-static Console* console = nullptr;
+static const uint64_t idleThresholdNS = 3000000000;
+static const uint64_t minFrameTimeNS = 2000000; // 2ms minimum frame time to avoid busy-waiting
+static const double activeFPS = 60.0;
+static const double idleFPS = 5.0;
 
 static int SDLCALL IOThread(void* userdata) {
     boost::asio::io_context* io_context = static_cast<boost::asio::io_context*>(userdata);
@@ -58,14 +62,49 @@ static void SDLCALL callback(void* userdata, const char* const* filelist, int fi
     }
 
     while (*filelist) {
-		prepAndReadFile(userdata, *filelist);
-		filelist++;
+        prepAndReadFile(userdata, *filelist);
+        filelist++;
     }
 }
 
 static void SDLCALL appSDL_LogOutputFunction(void* userdata, int category, SDL_LogPriority priority, const char* message) {
     AppState* state = (AppState*)userdata;
     state->console->log((int)priority, std::string(message));
+}
+
+inline void NotifyUserInput(void* userdata)
+{
+    AppState* state = (AppState*)userdata;
+    state->lastInputTimestamp = SDL_GetTicksNS();
+    state->isIdle = false;
+}
+
+void IdleMode_HandleFrameThrottling(void* userdata) {
+    AppState* state = (AppState*)userdata;
+    auto targetFPS = state->isIdle ? idleFPS : activeFPS;
+    uint64_t targetFrameTimeNS = 1000000000 / targetFPS;
+
+    auto now = SDL_GetTicksNS();
+    auto idleDur = now - state->lastInputTimestamp;
+    if (!state->isIdle && idleDur >= idleThresholdNS) {
+        state->isIdle = true;
+        SDL_Log("Entering idle mode (no user input for %lld ms)", idleDur / 1000000);
+    }
+
+    auto elapsedNS = now - state->lastTime;
+
+    if (elapsedNS < targetFrameTimeNS) {
+        uint64_t sleepNS = targetFrameTimeNS - elapsedNS;
+        if (sleepNS > minFrameTimeNS) {
+            SDL_DelayPrecise(sleepNS);
+        }
+    }
+
+    now = SDL_GetTicksNS();
+    elapsedNS = now - state->lastTime;
+    state->fps = (elapsedNS > 0) ? 1000000000.0 / elapsedNS : 0.0;
+
+    state->lastTime = SDL_GetTicksNS();
 }
 
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
@@ -79,14 +118,9 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     state->csvFiles.reserve(10);
 
-    console = new Console();
-    if (!console) {
-        SDL_Log("Failed to allocate memory for console: %s", SDL_GetError());
-        return SDL_APP_FAILURE;
-    }
-    state->console = console;
+    state->console = new Console();
 
-	csvFilesLock = SDL_CreateRWLock();
+    csvFilesLock = SDL_CreateRWLock();
 
     SDL_SetLogOutputFunction(appSDL_LogOutputFunction, state);
 
@@ -164,8 +198,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     ImGui_ImplSDLGPU3_Init(&init_info);
 
     state->fps = 0.0;
-    state->frequency = SDL_GetPerformanceFrequency();
-    state->lastTime = SDL_GetPerformanceCounter();
 
     state->windows.push_back(std::make_unique<Window_FPS>(&state->fps));
 
@@ -196,6 +228,21 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event)
     case SDL_EVENT_QUIT:
         SDL_Log("Received quit event.");
         return SDL_APP_SUCCESS;
+    case SDL_EVENT_MOUSE_MOTION:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+    case SDL_EVENT_MOUSE_WHEEL:
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+    case SDL_EVENT_TEXT_INPUT:
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_WINDOW_SHOWN:
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+    case SDL_EVENT_WINDOW_RESIZED:
+    case SDL_EVENT_WINDOW_MOVED:
+        NotifyUserInput(appstate);
     }
     return SDL_APP_CONTINUE;
 }
@@ -233,12 +280,25 @@ SDL_AppResult SDL_AppIterate(void* appstate)
         if (ImGui::MenuItem("Open Console")) {
             state->windows.push_back(std::make_unique<Window_Console>(state->console, &state->consoleIsOpen));
         }
+        if (ImGui::MenuItem("Open Metrics Window")) {
+            state->show_metrics_window = true;
+        }
+        if (ImGui::MenuItem("Open Debug Log")) {
+            state->show_debug_log = true;
+        }
         ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
 
     for (auto& window : state->windows) {
         window->draw();
+    }
+
+    if (state->show_metrics_window) {
+        ImGui::ShowMetricsWindow(&state->show_metrics_window);
+    }
+    if (state->show_debug_log) {
+        ImGui::ShowDebugLogWindow(&state->show_debug_log);
     }
 
     for (auto &file : state->csvFiles) {
@@ -325,9 +385,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     // Submit the command buffer
     SDL_SubmitGPUCommandBuffer(command_buffer);
 
-    // Update FPS
-	state->fps = state->frequency / static_cast<double>(SDL_GetPerformanceCounter() - state->lastTime);
-	state->lastTime = SDL_GetPerformanceCounter();
+    IdleMode_HandleFrameThrottling(appstate);
 
     return SDL_APP_CONTINUE;  /* carry on with the program! */
 }

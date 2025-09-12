@@ -2,16 +2,21 @@
 
 #include <string>
 #include <vector>
+#include <chrono>
+#include <cstdint>
 
 class Console {
     typedef struct {
         int prio;
+        int64_t timestamp;
         std::string text;
     } LogItem;
 
 public:
     void log(int prio, std::string text);
+    void updateRecentlyAddedItems();
     int getCount() const;
+    int getCountRecent() const;
     LogItem getItem(int index) const;
     void removeItem(int index);
     void removeAll();
@@ -19,4 +24,5 @@ public:
 
 private:
     std::vector<LogItem> logItems;
+    std::vector<LogItem> recentlyAddedItems;
 };

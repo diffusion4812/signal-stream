@@ -10,11 +10,14 @@
 typedef struct {
     Console* console;
 
+    bool show_debug_log;
+    bool show_metrics_window;
+
     double fps;
-    double* fpshistory;
-    Uint64 frameCount;
-    Uint64 lastTime;
-    double frequency;
+    int64_t lastInputTimestamp;
+    bool isIdle;
+    uint64_t frameCount;
+    uint64_t lastTime;
 
     std::vector<CSVFile> csvFiles;
     bool consoleIsOpen;
