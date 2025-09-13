@@ -28,7 +28,7 @@ typedef struct {
 
     SPSC_CircularBuffer<BufferItem>* buffer_;
 
-    std::vector<std::unique_ptr<Window>> windows;
+    std::vector<std::unique_ptr<IWindow>> windows;
     std::vector<std::unique_ptr<Server>> servers;
     std::vector<std::unique_ptr<Session>> sessions;
 } AppState;

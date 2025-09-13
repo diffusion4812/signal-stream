@@ -282,7 +282,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     ImGui::EndMainMenuBar();
 
     for (auto& window : state->windows) {
-        window->draw();
+        window->Draw();
     }
 
     if (state->show_metrics_window) {

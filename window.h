@@ -6,12 +6,34 @@
 #include "console.h"
 #include "buffer.h"
 
-class Window {
-public:
-    virtual void draw() {};
+struct IWindow {
+    virtual ~IWindow() = default;
+    virtual void Draw() = 0;
 };
 
-class Window_Console : public Window {
+template<typename Derived>
+class WindowCRTP : public IWindow {
+public:
+    void Draw() {
+        setFullscreen();
+        static_cast<Derived*>(this)->OnDraw();
+    }
+
+private:
+    void setFullscreen() {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGuiViewport* vp = ImGui::GetMainViewport();
+        if (fullscreen_) {
+            ImGui::SetNextWindowPos(vp->Pos);
+            ImGui::SetNextWindowSize(vp->Size);
+            ImGui::SetNextWindowViewport(vp->ID);
+        }
+    }
+
+    bool fullscreen_ = false;
+};
+
+class Window_Console : public WindowCRTP<Window_Console> {
 public:
     Window_Console(Console* console, bool* consoleIsOpen) {
         mConsole = console;
@@ -44,7 +66,7 @@ public:
         ImVec2 workPos = vp->WorkPos;     // top-left of usable area
         ImVec2 workSize = vp->WorkSize;   // size of usable area
 
-        ImVec2 panelSize = ImVec2(400.0f, 50.0f);
+        ImVec2 panelSize = ImVec2(400.0f, 100.0f);
 
         // Update slide timer when sliding
         if (slidingIn || slidingOut) {
@@ -79,7 +101,7 @@ public:
             // Easing: ease-out cubic (you can replace with any easing)
             auto easeOutCubic = [](float x) {
                 return 1.0f - powf(1.0f - x, 3.0f);
-            };
+                };
             float e = easeOutCubic(t);
 
             // Compute final position:
@@ -102,11 +124,11 @@ public:
                 ImGuiWindowFlags_NoInputs |
                 ImGuiWindowFlags_NoFocusOnAppearing |
                 ImGuiWindowFlags_NoBringToFrontOnFocus;
-    
+
             ImGui::SetNextWindowPos(curPos, ImGuiCond_Always);
             ImGui::SetNextWindowSize(panelSize, ImGuiCond_Always);
 
-            ImGui::Begin("Recent Logs");
+            ImGui::Begin("Recent Logs", (bool*)0, flags);
             for (int i = 0; i < mConsole->getCountRecent(); ++i) {
                 auto item = mConsole->getItemRecent(i);
                 ImGui::Text("%s", item.text.c_str());
@@ -125,7 +147,7 @@ public:
         }
     }
 
-    void draw() {
+    void OnDraw() {
         ImGui::Begin("Console", mConsoleIsOpen);
         if (ImGui::Button("Clear Console")) {
             mConsole->removeAll();
@@ -167,12 +189,12 @@ private:
     bool isSliding;       // one-shot trigger to start sliding
 };
 
-class Window_FPS : public Window {
+class Window_FPS : public WindowCRTP<Window_FPS> {
 public:
     Window_FPS(double* fps) {
         mFPS = fps;
     }
-    void draw() {
+    void OnDraw() {
         ImGui::Begin("FPS");
         ImGui::Text("%.2f", *mFPS);
         ImGui::End();
@@ -181,12 +203,13 @@ private:
     double* mFPS;
 };
 
-class Window_Analysis : public Window {
+class Window_Analysis : public WindowCRTP<Window_Analysis> {
 public:
     Window_Analysis(CSVFile* csvFile) {
         mCSVFile = csvFile;
     }
-    void draw() {
+
+    void OnDraw() {
         // --- ImPlot CSV Plotting ---
         if (mCSVFile->fileIsRead && mCSVFile->parsedCsv->GetColumnCount() > 1) {
             ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
@@ -276,13 +299,14 @@ private:
     CSVFile* mCSVFile;
 };
 
-class Window_Live : public Window {
+class Window_Live : public WindowCRTP<Window_Live> {
 public:
     explicit Window_Live(SPSC_CircularBuffer<BufferItem>* buffer)
         : buffer_(buffer) {
         assert(buffer != nullptr);
     }
-    void draw() {
+
+    void OnDraw() {
         ImGui::Begin("Live Window");
         ImGui::Text("%d", buffer_->capacity());
         if (ImPlot::BeginPlot("Live sss Data", ImVec2(-1, -1))) {

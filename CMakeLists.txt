@@ -18,6 +18,7 @@ add_executable(sdl-playground WIN32
     buffer.h
     csv.h
     console.h
+    project.h
     rapidcsv.h
     tcpip.h
     window.h
