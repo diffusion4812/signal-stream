@@ -26,7 +26,7 @@ typedef struct {
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     SDL_Thread* ioThread;
 
-    SPSC_CircularBuffer<int>* buffer_;
+    SPSC_CircularBuffer<BufferItem>* buffer_;
 
     std::vector<std::unique_ptr<Window>> windows;
     std::vector<std::unique_ptr<Server>> servers;

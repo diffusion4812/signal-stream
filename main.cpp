@@ -198,7 +198,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     state->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(state->io_context->get_executor());
     state->ioThread = SDL_CreateThread(IOThread, "IOThread", state->io_context);
 
-    state->buffer_ = new SPSC_CircularBuffer<int>(1024);
+    state->buffer_ = new SPSC_CircularBuffer<BufferItem>(1024);
 
     return SDL_APP_CONTINUE;
 }

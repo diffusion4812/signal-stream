@@ -8,7 +8,7 @@
 class Session : public std::enable_shared_from_this<Session>
 {
 public:
-    Session(boost::asio::ip::tcp::socket socket, SPSC_CircularBuffer<int>* circ_buf)
+    Session(boost::asio::ip::tcp::socket socket, SPSC_CircularBuffer<BufferItem>* circ_buf)
         : mSocket(std::move(socket)), circ_buf_(circ_buf) {
         assert(circ_buf != nullptr);
     }
@@ -35,7 +35,8 @@ private:
                     // or whatever the server needs to do with the received data
                     SDL_Log(data.c_str());
                     int num = atoi(data.c_str());
-                    circ_buf_->push(num);
+
+                    circ_buf_->push(BufferItem{ num, static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()) });
                     wait_for_request();
                 }
                 else {
@@ -45,12 +46,12 @@ private:
     }
     boost::asio::ip::tcp::socket mSocket;
     boost::asio::streambuf mBuffer;
-    SPSC_CircularBuffer<int>* circ_buf_;
+    SPSC_CircularBuffer<BufferItem>* circ_buf_;
 };
 
 class Server {
 public:
-    Server(boost::asio::io_context& io_context, short port, SPSC_CircularBuffer<int>* circ_buf)
+    Server(boost::asio::io_context& io_context, short port, SPSC_CircularBuffer<BufferItem>* circ_buf)
         : mAcceptor(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)),
           circ_buf_(circ_buf) {
         // now we call do_accept() where we wait for clients
@@ -72,5 +73,5 @@ private:
             });
     }
     boost::asio::ip::tcp::acceptor mAcceptor;
-    SPSC_CircularBuffer<int>* circ_buf_;
+    SPSC_CircularBuffer<BufferItem>* circ_buf_;
 };

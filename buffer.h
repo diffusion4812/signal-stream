@@ -11,6 +11,11 @@
 #include <memory>
 #include <chrono>
 
+typedef struct {
+    int data;
+    uint64_t ms; // ms since UNIX epoch
+} BufferItem;
+
 template<typename T>
 class SPSC_CircularBuffer {
 public:
@@ -66,15 +71,16 @@ public:
         tail_.store(0);
     }
 
+    std::vector<T> buf_;
+    std::atomic<size_t> head_;
+    std::atomic<size_t> tail_;
+
 private:
     size_t increment(size_t idx) const noexcept {
         return (idx + 1) % capacity_;
     }
 
-    std::vector<T> buf_;
     const size_t capacity_;
-    std::atomic<size_t> head_;
-    std::atomic<size_t> tail_;
 };
 
 template<typename T>
@@ -153,11 +159,12 @@ public:
         not_full_.notify_all();
     }
 
-private:
     std::vector<T> buf_;
-    const size_t capacity_;
     size_t head_;
     size_t tail_;
+
+private:
+    const size_t capacity_;
     size_t size_;
     mutable std::mutex mtx_;
     std::condition_variable not_empty_;

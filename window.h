@@ -278,15 +278,30 @@ private:
 
 class Window_Live : public Window {
 public:
-    explicit Window_Live(SPSC_CircularBuffer<int>* buffer)
+    explicit Window_Live(SPSC_CircularBuffer<BufferItem>* buffer)
         : buffer_(buffer) {
         assert(buffer != nullptr);
     }
     void draw() {
         ImGui::Begin("Live Window");
         ImGui::Text("%d", buffer_->capacity());
+        if (ImPlot::BeginPlot("Live sss Data", ImVec2(-1, -1))) {
+            ImPlot::PlotLineG("line", DataGetter, buffer_, buffer_->size());
+            ImPlot::EndPlot();
+        }
         ImGui::End();
     }
 private:
-    SPSC_CircularBuffer<int>* buffer_;
+    static ImPlotPoint DataGetter(int idx, void* user_data) {
+        auto* buffer_ = static_cast<SPSC_CircularBuffer<BufferItem>*>(user_data);
+        // Index 0 to size of buffer - 1
+        if (buffer_->tail_ > buffer_->head_) {
+            BufferItem item;
+            item = buffer_->buf_[idx + buffer_->head_];
+            return ImPlotPoint(item.ms, item.data);
+        }
+        return ImPlotPoint(0, 0);
+    }
+
+    SPSC_CircularBuffer<BufferItem>* buffer_;
 };

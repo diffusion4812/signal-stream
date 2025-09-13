@@ -9,11 +9,21 @@ include_directories($ENV{BOOST_ROOT})
 
 link_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/lib)
 
-add_executable(sdl-playground WIN32
-    main.cpp
-    csv.cpp
+add_executable(sdl-playground WIN32       
     console.cpp
+    csv.cpp
+    main.cpp
+
+    appstate.h
+    buffer.h
+    csv.h
+    console.h
+    rapidcsv.h
+    tcpip.h
+    window.h
+
     sdl-playground.rc
+
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui.cpp
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_draw.cpp
     C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_widgets.cpp
