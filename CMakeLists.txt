@@ -1,39 +1,30 @@
-cmake_minimum_required(VERSION 3.10)
-project(sdl-playground CXX)
+cmake_minimum_required(VERSION 3.13)
+project(signal-stream LANGUAGES CXX)
+
 
 include_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/include)
 include_directories(C:/Users/LOAR02/Source/Libraries/imgui-docking)
 include_directories(C:/Users/LOAR02/Source/Libraries/imgui-docking/backends)
 include_directories(C:/Users/LOAR02/Source/Libraries/implot-master)
+include_directories(C:/Users/LOAR02/Source/Libraries/tinycc/win32/libtcc)
 include_directories($ENV{BOOST_ROOT})
 
+include_directories(include)
+include_directories(libs)
+
 link_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/lib)
+link_directories(C:/Users/LOAR02/Source/Libraries/tinycc/win32)
 
-add_executable(sdl-playground WIN32       
-    console.cpp
-    csv.cpp
-    main.cpp
 
-    appstate.h
-    buffer.h
-    csv.h
-    console.h
-    project.h
-    rapidcsv.h
-    tcpip.h
-    window.h
+add_executable(signal-stream WIN32)
+set_property(TARGET signal-stream PROPERTY CXX_STANDARD 17)
+set_property(TARGET signal-stream PROPERTY OUTPUT_NAME "Signal Stream")
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-    sdl-playground.rc
+target_link_libraries(signal-stream SDL3)
+target_link_libraries(signal-stream libtcc)
 
-    C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui.cpp
-    C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_draw.cpp
-    C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_widgets.cpp
-    C:/Users/LOAR02/Source/Libraries/imgui-docking/imgui_tables.cpp
-    C:/Users/LOAR02/Source/Libraries/imgui-docking/backends/imgui_impl_sdl3.cpp
-    C:/Users/LOAR02/Source/Libraries/imgui-docking/backends/imgui_impl_sdlgpu3.cpp
-    C:/Users/LOAR02/Source/Libraries/implot-master/implot.cpp
-    C:/Users/LOAR02/Source/Libraries/implot-master/implot_items.cpp)
-
-target_link_libraries(sdl-playground SDL3)
-
-set_property(TARGET sdl-playground PROPERTY CXX_STANDARD 17)
+add_subdirectory(libs)
+add_subdirectory(misc)
+add_subdirectory(include)
+add_subdirectory(source)

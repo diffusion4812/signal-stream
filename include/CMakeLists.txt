@@ -1,0 +1,13 @@
+target_sources(signal-stream PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/appstate.h
+	${CMAKE_CURRENT_SOURCE_DIR}/buffer.h
+	${CMAKE_CURRENT_SOURCE_DIR}/connection.h
+	${CMAKE_CURRENT_SOURCE_DIR}/console.h
+	${CMAKE_CURRENT_SOURCE_DIR}/csv.h
+	${CMAKE_CURRENT_SOURCE_DIR}/instance.h
+	${CMAKE_CURRENT_SOURCE_DIR}/project.h
+	${CMAKE_CURRENT_SOURCE_DIR}/resource.h
+	${CMAKE_CURRENT_SOURCE_DIR}/schema.h
+	${CMAKE_CURRENT_SOURCE_DIR}/tcpip.h
+	${CMAKE_CURRENT_SOURCE_DIR}/window.h
+)

@@ -39,10 +39,10 @@ public:
         mConsole = console;
         mConsoleIsOpen = consoleIsOpen;
         slideTimer = 0.0f;            // current elapsed time for the slide
-        slideDuration = 0.5f;  // seconds for full slide-in
-        slidingIn = false;             // set true to start slide-in
-        slidingOut = false;
-        visible = false;               // whether the panel is visible (should remain after slide completes)
+        slideDuration = 0.5f;         // seconds for full slide-in
+        slidingIn = false;            // set true to start slide-in
+        slidingOut = false;           // set true to start slide-out
+        visible = false;              // whether the panel is visible (should remain after slide completes)
         isSliding = false;            // one-shot trigger to start sliding  
         StartSlideIn();
     }
