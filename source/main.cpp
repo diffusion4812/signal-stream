@@ -125,19 +125,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     state->console = new Console();
     SDL_SetLogOutputFunction(appSDL_LogOutputFunction, state);
 
-    TCCState* s = tcc_new();
-    tcc_set_error_func(s, NULL, tcc_error);
-    tcc_set_options(s, "-IC:/Users/LOAR02/Source/Libraries/tinycc/include -LC:/Users/LOAR02/Source/Libraries/tinycc/win32/lib -BC:/Users/LOAR02/Source/Libraries/tinycc/win32/lib");
-    tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
-    tcc_add_symbol(s, "SDL_Log", (void*)SDL_Log);
-    if (tcc_compile_string(s, my_program) == 0) {
-        if (tcc_relocate(s, TCC_RELOCATE_AUTO) == 0) {
-            void (*test)(void) = (void(*)(void))tcc_get_symbol(s, "test");
-            if (test) test();
-        }
-    }
-    tcc_delete(s);
-
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) != 0)
     {
         SDL_Log("Error: SDL_Init(): %s\n", SDL_GetError());
@@ -146,7 +133,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     // Create SDL window graphics context
     float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
-    window = SDL_CreateWindow("CSV Toy", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    window = SDL_CreateWindow("Signal Stream", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (window == nullptr)
     {
         SDL_Log("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
@@ -154,7 +141,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     }
 
     // ... (load your icon image into an SDL_Surface)
-    SDL_Surface* icon_surface = SDL_LoadBMP("icon.bmp"); // Example: loading a BMP
+    SDL_Surface* icon_surface = SDL_LoadBMP("icon.bmp");
     if (icon_surface) {
         SDL_SetWindowIcon(window, icon_surface);
         SDL_DestroySurface(icon_surface); // Free the surface after setting the icon
