@@ -11,11 +11,6 @@
 #include <memory>
 #include <chrono>
 
-typedef struct {
-    int data;
-    uint64_t ms; // ms since UNIX epoch
-} BufferItem;
-
 template<typename T>
 class SPSC_CircularBuffer {
 public:

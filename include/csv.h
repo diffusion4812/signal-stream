@@ -2,7 +2,7 @@
 
 #include <filesystem>
 #include <SDL3/SDL.h>
-#include "rapidcsv.h"
+#include <rapidcsv.h>
 #include <deque>
 
 typedef struct {

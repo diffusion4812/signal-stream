@@ -203,20 +203,33 @@ private:
     double* mFPS;
 };
 
+class Window_OpenProject : public WindowCRTP<Window_OpenProject> {
+public:
+    Window_OpenProject() {
+    }
+
+    void OnDraw() {
+        if (ImGui::Begin("Project Name")) {
+
+            ImGui::End();
+        }
+    }
+};
+
 class Window_Analysis : public WindowCRTP<Window_Analysis> {
 public:
     Window_Analysis(CSVFile* csvFile) {
-        mCSVFile = csvFile;
+        CSVFile_ = csvFile;
     }
 
     void OnDraw() {
         // --- ImPlot CSV Plotting ---
-        if (mCSVFile->fileIsRead && mCSVFile->parsedCsv->GetColumnCount() > 1) {
+        if (CSVFile_->fileIsRead && CSVFile_->parsedCsv->GetColumnCount() > 1) {
             ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(200, 200), ImGuiCond_FirstUseEver);
-            ImGui::Begin(mCSVFile->filePath.filename().string().c_str()); // TODO: Add close button
+            ImGui::Begin(CSVFile_->filePath.filename().string().c_str()); // TODO: Add close button
             if (ImGui::Button("Display Table")) {
-                mCSVFile->csvTableWindowIsOpen = !mCSVFile->csvTableWindowIsOpen;
+                CSVFile_->csvTableWindowIsOpen = !CSVFile_->csvTableWindowIsOpen;
             }
 
             {
@@ -225,14 +238,14 @@ public:
                 ImGui::TableSetupColumn("Signal Name", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("X-Axis", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Y-Axis", ImGuiTableColumnFlags_WidthFixed);
-                for (size_t i = 0; i < mCSVFile->parsedCsv->GetColumnCount(); ++i) {
+                for (size_t i = 0; i < CSVFile_->parsedCsv->GetColumnCount(); ++i) {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
-                    ImGui::TextUnformatted(mCSVFile->parsedCsv->GetColumnName(i).c_str());
+                    ImGui::TextUnformatted(CSVFile_->parsedCsv->GetColumnName(i).c_str());
                     ImGui::TableSetColumnIndex(1);
-                    ImGui::Checkbox(std::string("##xaxis" + std::to_string(i)).c_str(), &mCSVFile->selectedAxis[0][i]);
+                    ImGui::Checkbox(std::string("##xaxis" + std::to_string(i)).c_str(), &CSVFile_->selectedAxis[0][i]);
                     ImGui::TableSetColumnIndex(2);
-                    ImGui::Checkbox(std::string("##yaxis" + std::to_string(i)).c_str(), &mCSVFile->selectedAxis[1][i]);
+                    ImGui::Checkbox(std::string("##yaxis" + std::to_string(i)).c_str(), &CSVFile_->selectedAxis[1][i]);
                 }
                 ImGui::TableNextRow();
                 ImGui::EndTable();
@@ -247,18 +260,18 @@ public:
 
                 ImGui::BeginChild("CSVPlotting", ImVec2(0, 0), ImGuiChildFlags_Borders);
 
-                for (int i = 0; i < mCSVFile->selectedAxis[0].size(); ++i) {
-                    if (mCSVFile->selectedAxis[0][i]) {
+                for (int i = 0; i < CSVFile_->selectedAxis[0].size(); ++i) {
+                    if (CSVFile_->selectedAxis[0][i]) {
                         xCol = i;
                     }
 
-                    if (mCSVFile->selectedAxis[1][i]) {
+                    if (CSVFile_->selectedAxis[1][i]) {
                         yCol = i;
                     }
                 }
 
-                size_t colCount = mCSVFile->parsedCsv->GetColumnCount();
-                size_t rowCount = mCSVFile->parsedCsv->GetRowCount();
+                size_t colCount = CSVFile_->parsedCsv->GetColumnCount();
+                size_t rowCount = CSVFile_->parsedCsv->GetRowCount();
                 size_t plotRows = (rowCount < 1000000) ? rowCount : 1000; // Limit for performance
 
                 // Prepare data
@@ -268,8 +281,8 @@ public:
                 bool validData = true;
                 for (size_t i = 0; i < plotRows; ++i) {
                     try {
-                        xData[i] = std::stod(mCSVFile->parsedCsv->GetCell<std::string>(xCol, i));
-                        yData[i] = std::stod(mCSVFile->parsedCsv->GetCell<std::string>(yCol, i));
+                        xData[i] = std::stod(CSVFile_->parsedCsv->GetCell<std::string>(xCol, i));
+                        yData[i] = std::stod(CSVFile_->parsedCsv->GetCell<std::string>(yCol, i));
                     }
                     catch (...) {
                         validData = false;
@@ -296,12 +309,12 @@ public:
 
     }
 private:
-    CSVFile* mCSVFile;
+    CSVFile* CSVFile_;
 };
 
 class Window_Live : public WindowCRTP<Window_Live> {
 public:
-    explicit Window_Live(SPSC_CircularBuffer<BufferItem>* buffer)
+    explicit Window_Live(SPSC_CircularBuffer<std::byte*>* buffer)
         : buffer_(buffer) {
         assert(buffer != nullptr);
     }
@@ -309,7 +322,7 @@ public:
     void OnDraw() {
         ImGui::Begin("Live Window");
         ImGui::Text("%d", buffer_->capacity());
-        if (ImPlot::BeginPlot("Live sss Data", ImVec2(-1, -1))) {
+        if (ImPlot::BeginPlot("Live Data", ImVec2(-1, -1))) {
             ImPlot::PlotLineG("line", DataGetter, buffer_, buffer_->size());
             ImPlot::EndPlot();
         }
@@ -317,15 +330,15 @@ public:
     }
 private:
     static ImPlotPoint DataGetter(int idx, void* user_data) {
-        auto* buffer_ = static_cast<SPSC_CircularBuffer<BufferItem>*>(user_data);
-        // Index 0 to size of buffer - 1
-        if (buffer_->tail_ > buffer_->head_) {
+        auto* buffer_ = static_cast<SPSC_CircularBuffer<std::byte*>*>(user_data);
+        // TODO: Plot data
+        /*if (buffer_->tail_ > buffer_->head_) {
             BufferItem item;
             item = buffer_->buf_[idx + buffer_->head_];
             return ImPlotPoint(item.ms, item.data);
-        }
+        }*/
         return ImPlotPoint(0, 0);
     }
 
-    SPSC_CircularBuffer<BufferItem>* buffer_;
+    SPSC_CircularBuffer<std::byte*>* buffer_;
 };

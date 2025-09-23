@@ -106,12 +106,6 @@ void IdleMode_HandleFrameThrottling(void* userdata) {
     state->lastTime = SDL_GetTicksNS();
 }
 
-const char* my_program = "extern void SDL_Log(const char *fmt, ...); void test(void) {SDL_Log(\"hello!\");}";
-
-void tcc_error(void* opaque, const char* msg) {
-    SDL_Log("tcc: %s", msg);
-}
-
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 {
     AppState* state = new AppState();
@@ -205,7 +199,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     state->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(state->io_context->get_executor());
     state->ioThread = SDL_CreateThread(IOThread, "IOThread", state->io_context);
 
-    state->buffer_ = new SPSC_CircularBuffer<BufferItem>(1024);
+    state->buffer = new SPSC_CircularBuffer<std::byte*>(1024);
 
     return SDL_APP_CONTINUE;
 }
@@ -258,16 +252,24 @@ SDL_AppResult SDL_AppIterate(void* appstate)
 
     ImGui::BeginMainMenuBar();
     if (ImGui::BeginMenu("File")) {
+        if(ImGui::BeginMenu("New Project")) {
+            if (ImGui::MenuItem("TCP/IP")) {
+                state->schema = new Schema();
+                state->schema->add_field("timestamp", Kind::Int64);
+                state->schema->add_field("value", Kind::Double);
+                state->schema->finalize();
+
+                state->servers.push_back(std::make_unique<Server>(*state->io_context, 26201, state->schema, state->buffer));
+                state->windows.push_back(std::make_unique<Window_Live>(state->buffer));
+            }
+            if (ImGui::MenuItem("Open Serial")) {
+                // Placeholder for future Serial functionality
+                SDL_Log("Serial functionality not implemented yet.");
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Open CSV")) {
             SDL_ShowOpenFileDialog(callback, appstate, nullptr, nullptr, 0, nullptr, false);
-        }
-        if (ImGui::MenuItem("Open TCP/IP")) {
-            state->servers.push_back(std::make_unique<Server>(*state->io_context, 26201, state->buffer_));
-            state->windows.push_back(std::make_unique<Window_Live>(state->buffer_));
-        }
-        if (ImGui::MenuItem("Open Serial")) {
-            // Placeholder for future Serial functionality
-            SDL_Log("Serial functionality not implemented yet.");
         }
         if (ImGui::MenuItem("Exit")) {
             return SDL_APP_SUCCESS;

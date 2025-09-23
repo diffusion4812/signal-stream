@@ -3,7 +3,7 @@
 
 class Instance {
     const Schema& schema_;
-    std::unique_ptr<std::byte[]> data_;
+    std::unique_ptr<std::byte> data_;
 
     void* ptr_at(std::size_t offset) { return static_cast<void*>(data_.get() + offset); }
     const void* ptr_at(std::size_t offset) const { return static_cast<const void*>(data_.get() + offset); }

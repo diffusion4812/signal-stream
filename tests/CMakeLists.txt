@@ -1,0 +1,11 @@
+add_subdirectory(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0 googletest-build EXCLUDE_FROM_ALL)
+
+add_executable(project_test
+    project_test.cpp
+)
+
+link_directories(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0)
+target_link_libraries(project_test PRIVATE gtest_main)
+
+include(GoogleTest)
+gtest_discover_tests(project_test)

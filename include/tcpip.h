@@ -4,12 +4,13 @@
 #include <SDL3/SDL_log.h>
 #include <memory>
 #include "buffer.h"
+#include "schema.h"
 
 class Session : public std::enable_shared_from_this<Session>
 {
 public:
-    Session(boost::asio::ip::tcp::socket socket, SPSC_CircularBuffer<BufferItem>* circ_buf)
-        : mSocket(std::move(socket)), circ_buf_(circ_buf) {
+    Session(boost::asio::ip::tcp::socket socket, Schema* schema, SPSC_CircularBuffer<std::byte*>* circ_buf)
+        : mSocket(std::move(socket)), schema_(schema), circ_buf_(circ_buf) {
         assert(circ_buf != nullptr);
     }
     void run() {
@@ -21,8 +22,8 @@ private:
         auto self(shared_from_this());
         // and now call the lambda once data arrives
         // we read a string until the null termination character
-        boost::asio::async_read_until(mSocket, mBuffer, "\0",
-            [this, self](boost::system::error_code ec, std::size_t /*length*/)
+        boost::asio::async_read(mSocket, mBuffer, boost::asio::transfer_exactly(schema_->instance_size()),
+            [this, self](boost::system::error_code ec, std::size_t len)
             {
                 // if there was no error, everything went well and for this demo
                 // we print the data to stdout and wait for the next request
@@ -31,12 +32,8 @@ private:
                         std::istreambuf_iterator<char>(&mBuffer),
                         std::istreambuf_iterator<char>()
                     };
-                    // we just print the data, you can here call other api's 
-                    // or whatever the server needs to do with the received data
-                    SDL_Log(data.c_str());
-                    int num = atoi(data.c_str());
 
-                    circ_buf_->push(BufferItem{ num, static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()) });
+                    SDL_Log(data.c_str());
                     wait_for_request();
                 }
                 else {
@@ -46,13 +43,15 @@ private:
     }
     boost::asio::ip::tcp::socket mSocket;
     boost::asio::streambuf mBuffer;
-    SPSC_CircularBuffer<BufferItem>* circ_buf_;
+    Schema* schema_;
+    SPSC_CircularBuffer<std::byte*>* circ_buf_;
 };
 
 class Server {
 public:
-    Server(boost::asio::io_context& io_context, short port, SPSC_CircularBuffer<BufferItem>* circ_buf)
+    Server(boost::asio::io_context& io_context, short port, Schema* schema, SPSC_CircularBuffer<std::byte*>* circ_buf)
         : mAcceptor(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)),
+          schema_(schema),
           circ_buf_(circ_buf) {
         // now we call do_accept() where we wait for clients
         do_accept();
@@ -64,7 +63,7 @@ private:
         mAcceptor.async_accept([this](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
             if (!ec) {
                 SDL_Log("creating session");
-                std::make_shared<Session>(std::move(socket), circ_buf_)->run();
+                std::make_shared<Session>(std::move(socket), schema_, circ_buf_)->run();
             }
             else {
                 SDL_Log("error: %s", ec.message().c_str());
@@ -73,5 +72,6 @@ private:
             });
     }
     boost::asio::ip::tcp::acceptor mAcceptor;
-    SPSC_CircularBuffer<BufferItem>* circ_buf_;
+    Schema* schema_;
+    SPSC_CircularBuffer<std::byte*>* circ_buf_;
 };
