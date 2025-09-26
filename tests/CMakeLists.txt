@@ -1,8 +1,10 @@
 add_subdirectory(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0 googletest-build EXCLUDE_FROM_ALL)
 
 add_executable(project_test
+    ../source/serviceregistration.cpp
     project_test.cpp
 )
+set_property(TARGET project_test PROPERTY CXX_STANDARD 20)
 
 link_directories(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0)
 target_link_libraries(project_test PRIVATE gtest_main)

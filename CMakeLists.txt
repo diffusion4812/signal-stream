@@ -13,15 +13,13 @@ include_directories(include)
 include_directories(libs)
 
 link_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/lib)
-link_directories(C:/Users/LOAR02/Source/Libraries/tinycc/win32)
 
 add_executable(signal-stream WIN32)
-set_property(TARGET signal-stream PROPERTY CXX_STANDARD 17)
+set_property(TARGET signal-stream PROPERTY CXX_STANDARD 20)
 set_property(TARGET signal-stream PROPERTY OUTPUT_NAME "Signal Stream")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 target_link_libraries(signal-stream SDL3)
-target_link_libraries(signal-stream libtcc)
 
 add_subdirectory(libs)
 add_subdirectory(misc)

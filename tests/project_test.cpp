@@ -1,11 +1,31 @@
+#include <chrono>
+#include <thread>
+
 #include <gtest/gtest.h>
-#include "project.h"
+#include "projectenvironment.h"
 
-TEST(HelloTest, BasicAssertions) {
-    Project p;
-    std::string err;
-    bool result = LoadProjectFromFile("C:/Users/LOAR02/Downloads/test_project.json", p, err);
+ProjectManager mgr;
+ProjectData pdata;
+std::string err;
 
-    EXPECT_EQ(p.name, "Test Project");
-    EXPECT_EQ(p.streams.size(), 1);
+TEST(SignalStream, OpenProject) {
+    LoadProjectFromFile("C:/Users/LOAR02/Downloads/test_project.json", pdata, err);
+    mgr.LoadProject(pdata, false, err); // Load and start services
+
+    EXPECT_EQ(mgr.GetProjectData().name, "Test Project");
+    EXPECT_EQ(mgr.GetProjectData().streams.size(), 1);
+}
+
+TEST(SignalStream, StartServices) {
+    mgr.StartAllServices(err);
+}
+
+TEST(SignalStream, GetRandomData) {
+    auto svc = mgr.GetService("my random data");
+    SampleHandle h; const uint8_t* data; size_t size; SampleMetadata meta;
+
+    if (svc->AcquireSample(std::chrono::milliseconds(100), h, data, size, meta)) {
+        // decode data
+        svc->ReleaseSample(h);
+    }
 }
