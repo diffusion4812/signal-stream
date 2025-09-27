@@ -6,6 +6,7 @@
 
 ProjectManager mgr;
 ProjectData pdata;
+Schema schema;
 std::string err;
 
 TEST(SignalStream, OpenProject) {
@@ -19,7 +20,30 @@ TEST(SignalStream, OpenProject) {
 TEST(SignalStream, StartServices) {
     bool started;
     started = mgr.StartAllServices(err);
+    auto svc = mgr.GetService("my random data");
+    svc->Stop();
     EXPECT_EQ(started, false);
+}
+
+TEST(SignalStream, AddSchema_FAIL) {
+    bool schemaloaded = false;
+    schema.add_field("field1", Kind::Int32);
+    schema.add_field("field2", Kind::String);
+    auto svc = mgr.GetService("my random data");
+    if (svc) {
+        schemaloaded = svc->SetupSchema(schema);
+    }
+    EXPECT_FALSE(schemaloaded);
+}
+
+TEST(SignalStream, AddSchema_PASS) {
+    bool schemaloaded = false;
+    schema.finalize(); // Must finalize before use
+    auto svc = mgr.GetService("my random data");
+    if (svc) {
+        schemaloaded = svc->SetupSchema(schema);
+    }
+    EXPECT_TRUE(schemaloaded);
 }
 
 TEST(SignalStream, GetRandomData) {

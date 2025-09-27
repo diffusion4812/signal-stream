@@ -83,11 +83,7 @@ public:
     virtual ServiceStatus Status() const = 0;
     virtual const SourceData& Source() const = 0;
 
-    virtual bool Configure(const std::string& key, const std::string& value) {
-        (void)key; (void)value;
-        return true;
-    }
-
+    virtual bool SetupSchema(const Schema& schema) = 0;
     using ServiceCallback = std::function<void(const ServiceEvent&)>;
     virtual std::size_t RegisterCallback(ServiceCallback cb) = 0;
     virtual void UnregisterCallback(std::size_t handle) = 0;
@@ -129,7 +125,7 @@ public:
         try {
             if (!OnStart()) {
                 status_.store(ServiceStatus::Error);
-                PublishEvent({ "Error", "Failed to start service", std::nullopt });
+                //PublishEvent({ "Error", "Failed to start service", std::nullopt });
                 return;
             }
             running_.store(true);
@@ -238,15 +234,13 @@ protected:
         std::lock_guard<std::recursive_mutex> lk(cbMtx_);
         // Copy callbacks to avoid modification during iteration
         auto callbacksCopy = callbacks_;
-        lk.~lock_guard();  // Manual unlock before calling callbacks (C++17+)
-        // Or use a separate scope: { std::lock_guard lk(cbMtx_); /* copy */ } then call outside
 
         for (auto& p : callbacksCopy) {
             try {
                 p.second(ev);
             }
             catch (const std::exception& e) {
-                std::cout << "[LOG] Exception in callback: " << e.what() << std::endl;
+                std::cout << "[LOG] Exception in callback [" << p.first << " - " << "]: " << e.what() << std::endl;
             }
         }
     }

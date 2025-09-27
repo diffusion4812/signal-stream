@@ -109,7 +109,7 @@ public:
                 return false;
             }
             // attach a forwarding callback so ProjectManager can publish global events
-            AttachForwardingCallbackUnlocked(desc, svc);
+            //AttachForwardingCallbackUnlocked(desc, svc);
             services_.emplace(desc.name, svc);
         }
 
@@ -142,7 +142,7 @@ public:
                 if (kv.second->Status() == ServiceStatus::Stopped || kv.second->Status() == ServiceStatus::Error) {
                     kv.second->Start();
                     // Wait briefly for status to update, if needed
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                 }
             }
             catch (const std::exception& ex) {
@@ -198,9 +198,9 @@ public:
 
     // Get a shared_ptr to a service (caller may interact with buffer APIs etc).
     // Returns nullptr if not found.
-    ServicePtr GetService(const std::string& streamName) const {
+    ServicePtr GetService(const std::string& servicename) const {
         std::lock_guard<std::mutex> lk(mtx_);
-        auto it = services_.find(streamName);
+        auto it = services_.find(servicename);
         return (it != services_.end()) ? it->second : nullptr;
     }
 
@@ -250,10 +250,8 @@ private:
         auto forwarder = [this, desc](const ServiceEvent& ev) {
             // copy callbacks under lock then invoke outside lock to avoid deadlocks
             std::vector<GlobalEventCallback> cbs;
-            {
-                std::lock_guard<std::mutex> lk(mtx_);
-                for (auto const& p : globalCallbacks_) cbs.push_back(p.second);
-            }
+            std::lock_guard<std::mutex> lk(mtx_);
+            for (auto const& p : globalCallbacks_) cbs.push_back(p.second); // Create a local copy of callbacks
             for (auto const& cb : cbs) {
                 try { cb(desc, ev); }
                 catch (...) { /* swallow */ }
