@@ -17,7 +17,9 @@ TEST(SignalStream, OpenProject) {
 }
 
 TEST(SignalStream, StartServices) {
-    mgr.StartAllServices(err);
+    bool started;
+    started = mgr.StartAllServices(err);
+    EXPECT_EQ(started, false);
 }
 
 TEST(SignalStream, GetRandomData) {

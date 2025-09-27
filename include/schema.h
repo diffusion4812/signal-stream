@@ -72,6 +72,10 @@ public:
         finalized_ = true;
     }
 
+    bool isFinalized() {
+        return finalized_;
+    }
+
     std::size_t instance_size() const {
         if (!finalized_) throw std::logic_error("Schema not finalized");
         return totalSize_;

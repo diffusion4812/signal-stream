@@ -141,10 +141,18 @@ public:
             try {
                 if (kv.second->Status() == ServiceStatus::Stopped || kv.second->Status() == ServiceStatus::Error) {
                     kv.second->Start();
+                    // Wait briefly for status to update, if needed
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
             }
             catch (const std::exception& ex) {
-                outError = "failed to start service " + kv.first + ": " + ex.what();
+                outError = "Failed to start service " + kv.first + ": " + ex.what();
+                running_ = false;  // Reset on failure
+                return false;
+            }
+            if (kv.second->Status() != ServiceStatus::Running) {
+                outError = "Failed to start service " + kv.first;
+                running_ = false;
                 return false;
             }
         }

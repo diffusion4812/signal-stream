@@ -31,7 +31,7 @@ public:
     }
 
     // Non-blocking attempt to acquire one sample buffer.
-    bool TryAcquireSample(SampleHandle& outHandle,
+    bool DoTryAcquireSample(SampleHandle& outHandle,
         const uint8_t*& outData,
         size_t& outSize,
         SampleMetadata& outMeta) override
@@ -71,7 +71,7 @@ public:
     }
     // Blocking acquire with timeout: in this simple generator case we ignore timeout
     // and behave identical to TryAcquireSample (always returns immediately).
-    bool AcquireSample(std::chrono::milliseconds /*timeout*/,
+    bool DoAcquireSample(std::chrono::milliseconds /*timeout*/,
         SampleHandle& outHandle,
         const uint8_t*& outData,
         size_t& outSize,
@@ -82,7 +82,7 @@ public:
     }
 
     // Release previously acquired buffer identified by handle.
-    void ReleaseSample(SampleHandle handle) override
+    void DoReleaseSample(SampleHandle handle) override
     {
         std::size_t id = static_cast<std::size_t>(handle);
         std::lock_guard<std::mutex> lg(activeMtx_);
@@ -99,7 +99,7 @@ public:
 
 protected:
     // Start/Stop hooks
-    bool OnStart() override {
+    bool DoOnStart() override {
         return true;
     }
 
