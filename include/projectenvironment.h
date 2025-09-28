@@ -13,6 +13,15 @@
 #include "project.h"
 #include "service.h"
 #include "servicefactory.h"
+#include "schema.h"
+
+// Lambda computes the Kind
+Kind kind_from_str(std::string type_str) {
+    if (type_str == "int32") return Kind::Int32;
+    else if (type_str == "float64") return Kind::Float;
+    else throw std::runtime_error("Unsupported type: " + type_str);  // Or return a default
+    return Kind::Int32; // Default type
+};
 
 // Deserialize Stream from json (throws std::runtime_error on invalid data)
 inline SourceData parseStream(const json& j) {
@@ -26,15 +35,12 @@ inline SourceData parseStream(const json& j) {
     stream.type = j.at("type").get<std::string>();
 
     for (const auto& sig : j.at("signals")) {
-        if (!sig.is_object()) throw std::runtime_error("Signal is not an object");
+        if (!sig.is_object()) throw std::runtime_error("Signal entry is not an object");
         if (!sig.contains("name") || !sig["name"].is_string()) throw std::runtime_error("Signal missing 'name' string");
         if (!sig.contains("type") || !sig["type"].is_string()) throw std::runtime_error("Signal missing 'type' string");
         if (!sig.contains("unit") || !sig["unit"].is_string()) throw std::runtime_error("Signal missing 'unit' string");
-        SignalData s;
-        s.name = sig.at("name").get<std::string>();
-        s.type = sig.at("type").get<std::string>();
-        s.unit = sig.at("unit").get<std::string>();
-        stream.signals.push_back(s);
+
+        stream.schema.add_field(sig.at("name").get<std::string>(), kind_from_str(sig.at("type").get<std::string>()));
     }
     return stream;
 }
@@ -49,7 +55,7 @@ inline ProjectData parseProject(const json& j) {
     p.name = j.at("name").get<std::string>();
 
     for (const auto& item : j.at("streams")) {
-        p.streams.push_back(parseStream(item));
+        p.sources.push_back(parseStream(item));
     }
 
     return p;
@@ -93,16 +99,17 @@ public:
         StopAllServicesLocked();
 
         data_ = std::move(pdata);
+        FinalizeAllSchemas();
 
         // Pre-create service objects (but do not start them unless autoStart requested)
-        for (const auto& desc : data_.streams) {
+        for (const auto& desc : data_.sources) {
             if (services_.count(desc.name)) {
                 // duplicate stream name in project — treat as error
                 outError = "duplicate stream name: " + desc.name;
                 services_.clear();
                 return false;
             }
-            auto svc = CreateServiceByType(desc.type, desc);
+            auto svc = CreateServiceByType(desc.type, desc.schema);
             if (!svc) {
                 outError = "no factory for service type: " + desc.type + " (stream: " + desc.name + ")";
                 services_.clear();
@@ -242,6 +249,14 @@ private:
         }
         services_.clear();
         running_ = false;
+    }
+
+    void FinalizeAllSchemas() {
+        for (auto& source : data_.sources) {
+            if (!source.schema.isFinalized()) {
+                source.schema.finalize();
+            }
+        }
     }
 
     // Attach a per-service callback that forwards to global callbacks.

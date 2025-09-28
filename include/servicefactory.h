@@ -9,7 +9,7 @@
 #include "service.h" // IService, StreamDescriptor
 
 // Factory function type: create service instance for given descriptor
-using ServiceFactoryFn = std::function<std::shared_ptr<IService>(const SourceData&)>;
+using ServiceFactoryFn = std::function<std::shared_ptr<IService>(const Schema& schema)>;
 
 // Registry accessor. Constructed on first use (C++11+ thread-safe).
 inline std::unordered_map<std::string, ServiceFactoryFn>& ServiceFactoryMap() {
@@ -28,7 +28,7 @@ inline bool RegisterServiceFactory(const std::string& type, ServiceFactoryFn fn)
 
 // Registration macro that creates a unique static boolean to perform registration
 // Usage:
-//   REGISTER_SERVICE_TYPE("random", [](const StreamDescriptor& d){ return RandomDataService::Create(d); });
+//   REGISTER_SERVICE_TYPE("random", [](std::string type, const Schema& schema){ return RandomDataService::Create(type, schema); });
 #define REGISTER_SERVICE_TYPE(TYPE_STR, FACTORY_EXPR)                       \
     namespace {                                                             \
         struct _service_registrar_##__LINE__ {                              \
@@ -40,9 +40,9 @@ inline bool RegisterServiceFactory(const std::string& type, ServiceFactoryFn fn)
     }
 
 // Lookup helper: create service by type; returns nullptr if type not found.
-inline std::shared_ptr<IService> CreateServiceByType(const std::string& type, const SourceData& desc) {
+inline std::shared_ptr<IService> CreateServiceByType(const std::string& type, const Schema& schema) {
     auto& m = ServiceFactoryMap();
     auto it = m.find(type);
     if (it == m.end()) return nullptr;
-    return it->second(desc);
+    return it->second(schema);
 }

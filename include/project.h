@@ -7,23 +7,18 @@
 #include <exception>
 #include <json.hpp>
 
-using json = nlohmann::json;
+#include "schema.h"
 
-struct SignalData {
-    std::string name;
-    std::string type;
-    std::string unit;
-};
+using json = nlohmann::json;
 
 struct SourceData {
     std::string name;
     std::string type;
-    std::vector<SignalData> signals;
-
+    Schema schema;
 };
 
 struct ProjectData {
     std::string name;
-    std::vector<SourceData> streams;
+    std::vector<SourceData> sources;
 };
 

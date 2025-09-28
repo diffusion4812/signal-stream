@@ -19,6 +19,7 @@
 
 #include "project.h"
 #include "schema.h"  // Include the schema class
+#include "instance.h" // Include the instance class for schema integration
 
 // Simple status enum for services.
 enum class ServiceStatus {
@@ -36,42 +37,14 @@ struct ServiceEvent {
     std::optional<std::string> payload;
 };
 
-// Enums and structs for sample formats (unchanged).
-enum class ElementType { UINT8, INT16, INT32, FLOAT32, FLOAT64 };
-enum class Endianness { Little, Big, Native };
-
-struct SampleFormat {
-    ElementType elementType;
-    uint16_t channels;
-    uint32_t samplesPerChannel;
-    uint32_t strideBytes;
-    Endianness endianness;
-};
-
-struct SampleMetadata {
+struct Sample {
     uint64_t timestampNs;
     uint64_t seq;
     uint32_t flags;
-    SampleFormat format;
-};
-
-struct Envelope {
-    uint32_t size;
-    uint32_t version;
-    uint64_t timestampNs;
-    uint64_t seq;
-    SampleMetadata metadata;
-    std::vector<uint8_t> payload;
-    uint32_t checksum;
+    Instance instance; // Use Instance to hold schema-based data
 };
 
 using SampleHandle = std::uintptr_t;
-
-struct SampleBufferInfo {
-    const uint8_t* data;
-    size_t size;
-    SampleMetadata meta;
-};
 
 // Abstract interface for services.
 class IService {
@@ -88,12 +61,11 @@ public:
     virtual std::size_t RegisterCallback(ServiceCallback cb) = 0;
     virtual void UnregisterCallback(std::size_t handle) = 0;
 
-    virtual bool TryAcquireSample(SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, SampleMetadata& outMeta) = 0;
-    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, SampleMetadata& outMeta) = 0;
+    virtual bool TryAcquireSample(SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) = 0;
+    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) = 0;
     virtual void ReleaseSample(SampleHandle handle) = 0;
-    virtual SampleFormat GetSampleFormat() const = 0;
 
-    virtual std::vector<uint8_t> FetchSample(SampleMetadata& outMeta) {
+    virtual std::vector<uint8_t> FetchSample(Sample& outMeta) {
         SampleHandle h;
         const uint8_t* d;
         size_t s;
@@ -107,11 +79,12 @@ public:
 // Concrete base class with schema integration.
 class ServiceBase : public IService {
 public:
-    explicit ServiceBase(SourceData desc)
-        : source_(std::move(desc)),
+    explicit ServiceBase(const Schema& schema)
+        :
         status_(ServiceStatus::Stopped),
         nextCallbackHandle_(1),
-        running_(false) {
+        running_(false),
+        schema_(schema) {
     }
 
     virtual ~ServiceBase() { Stop(); }
@@ -162,8 +135,8 @@ public:
             PublishEvent({ "Warning", "Cannot setup schema: Service not stopped", std::nullopt });
             return false;
         }
-        dataSchema_ = schema;
-        if (!dataSchema_->isFinalized()) { // Schema must be finalized to have access to instance data (size etc.)
+        schema_ = schema;
+        if (!schema_->isFinalized()) { // Schema must be finalized to have access to instance data (size etc.)
             PublishEvent({ "Warning", "Cannot setup schema: Schema not finalized", std::nullopt });
             return false;
         }
@@ -195,18 +168,19 @@ public:
     }
 
     // Buffer API: Pure virtual for concrete implementations.
-    virtual bool TryAcquireSample(SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, SampleMetadata& outMeta) override {
+    virtual bool TryAcquireSample(SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) override {
         // Base implementation with schema validation.
         bool result = DoTryAcquireSample(outHandle, outData, outSize, outMeta);
-        if (result && dataSchema_->isFinalized() && outSize != dataSchema_->instance_size()) {
+        if (result && schema_->isFinalized() && outSize != schema_->instance_size()) {
             PublishEvent({ "Warning", "Sample size does not match schema", std::nullopt });
         }
         return result;
     }
 
-    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, SampleMetadata& outMeta) override {
-        bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
-        if (result && dataSchema_->isFinalized() && outSize != dataSchema_->instance_size()) {
+    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) override {
+        //bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
+        bool result = false;
+        if (result && schema_->isFinalized() && outSize != schema_->instance_size()) {
             PublishEvent({ "Warning", "Sample size does not match schema", std::nullopt });
         }
         return result;
@@ -221,8 +195,8 @@ public:
 
 protected:
     virtual bool OnStart() {
-        if (!dataSchema_.has_value()) return false;
-        if (!dataSchema_->isFinalized()) return false;
+        if (!schema_.has_value()) return false;
+        if (!schema_->isFinalized()) return false;
         return DoOnStart();
     }
 
@@ -245,7 +219,6 @@ protected:
         }
     }
 
-
     void RunLoop() {
         while (running_.load()) {
             try {
@@ -263,12 +236,12 @@ protected:
 
     // Pure virtual
     virtual bool DoOnStart() = 0;
-    virtual bool DoTryAcquireSample(SampleHandle&, const uint8_t*&, size_t&, SampleMetadata&) = 0;
-    virtual bool DoAcquireSample(std::chrono::milliseconds, SampleHandle&, const uint8_t*&, size_t&, SampleMetadata&) = 0;
+    virtual bool DoTryAcquireSample(SampleHandle&, const uint8_t*&, size_t&, Sample&) = 0;
+    virtual bool DoAcquireSample(std::chrono::milliseconds, SampleHandle&, const uint8_t*&, size_t&, Sample&) = 0;
     virtual void DoReleaseSample(SampleHandle) = 0;
 
     SourceData source_;
-    std::optional<Schema> dataSchema_; // Integrated schema
+    std::optional<Schema> schema_; // Integrated schema
 
 private:
     std::recursive_mutex cbMtx_;
