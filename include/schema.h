@@ -26,7 +26,7 @@ struct FieldDesc {
 class Schema {
     std::vector<FieldDesc> fields_;
     std::size_t totalSize_ = 0;
-    bool finalized_ = false;
+    bool finalised_ = false;
 
     static std::size_t size_of(Kind k) {
         switch (k) {
@@ -54,12 +54,12 @@ class Schema {
 
 public:
     void add_field(std::string name, Kind k) {
-        if (finalized_) throw std::logic_error("Schema already finalized");
+        if (finalised_) throw std::logic_error("Schema already finalised");
         fields_.push_back({ std::move(name), k, 0, size_of(k), align_of(k) });
     }
 
-    void finalize() {
-        if (finalized_) return;
+    void finalise() {
+        if (finalised_) return;
         std::size_t off = 0;
         std::size_t maxAlign = 1;
         for (auto& f : fields_) {
@@ -69,15 +69,15 @@ public:
             off += f.size;
         }
         totalSize_ = align_up(off, maxAlign);
-        finalized_ = true;
+        finalised_ = true;
     }
 
-    bool isFinalized() {
-        return finalized_;
+    bool isfinalised() {
+        return finalised_;
     }
 
     std::size_t instance_size() const {
-        if (!finalized_) throw std::logic_error("Schema not finalized");
+        if (!finalised_) throw std::logic_error("Schema not finalised");
         return totalSize_;
     }
 

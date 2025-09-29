@@ -99,7 +99,7 @@ public:
         StopAllServicesLocked();
 
         data_ = std::move(pdata);
-        FinalizeAllSchemas();
+        finaliseAllSchemas();
 
         // Pre-create service objects (but do not start them unless autoStart requested)
         for (const auto& desc : data_.sources) {
@@ -251,10 +251,10 @@ private:
         running_ = false;
     }
 
-    void FinalizeAllSchemas() {
+    void finaliseAllSchemas() {
         for (auto& source : data_.sources) {
-            if (!source.schema.isFinalized()) {
-                source.schema.finalize();
+            if (!source.schema.isfinalised()) {
+                source.schema.finalise();
             }
         }
     }

@@ -257,7 +257,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
                 state->schema = new Schema();
                 state->schema->add_field("timestamp", Kind::Int64);
                 state->schema->add_field("value", Kind::Double);
-                state->schema->finalize();
+                state->schema->finalise();
 
                 state->servers.push_back(std::make_unique<Server>(*state->io_context, 26201, state->schema, state->buffer));
                 state->windows.push_back(std::make_unique<Window_Live>(state->buffer));

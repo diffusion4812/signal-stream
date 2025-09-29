@@ -19,17 +19,18 @@ public:
     RandomDataService(const Schema& schema)
         : ServiceBase(schema),
         gen_(std::random_device{}()),
-        dist_(0, 255),
-        schema_(schema),
-        instance_(schema_) {
+        dist_(0, 255) {
     }
 
     // Non-blocking attempt to acquire one sample buffer.
-    bool DoTryAcquireSample(SampleHandle& outHandle,
-        const uint8_t*& outData,
-        size_t& outSize,
-        Sample& outMeta) override
+    bool DoTryAcquireSample(SampleHandle& outHandle, Instance& instance) override
     {
+        for (const auto& f : schema_.value().fields()) {
+            switch (f.kind) {
+                case Kind::Int32:
+                    instance.set<int32_t>(f.name, 1357924680);
+            }
+        }
         return true;
     }
     // Blocking acquire with timeout: in this simple generator case we ignore timeout
@@ -75,7 +76,4 @@ private:
 
     std::mutex activeMtx_;
     std::size_t lastHandleId_;
-
-    Schema schema_;
-    Instance instance_;
 };

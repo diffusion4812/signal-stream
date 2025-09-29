@@ -61,19 +61,9 @@ public:
     virtual std::size_t RegisterCallback(ServiceCallback cb) = 0;
     virtual void UnregisterCallback(std::size_t handle) = 0;
 
-    virtual bool TryAcquireSample(SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) = 0;
+    virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) = 0;
     virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) = 0;
     virtual void ReleaseSample(SampleHandle handle) = 0;
-
-    virtual std::vector<uint8_t> FetchSample(Sample& outMeta) {
-        SampleHandle h;
-        const uint8_t* d;
-        size_t s;
-        if (!AcquireSample(std::chrono::milliseconds(100), h, d, s, outMeta)) return {};
-        std::vector<uint8_t> v(d, d + s);
-        ReleaseSample(h);
-        return v;
-    }
 };
 
 // Concrete base class with schema integration.
@@ -98,7 +88,7 @@ public:
         try {
             if (!OnStart()) {
                 status_.store(ServiceStatus::Error);
-                //PublishEvent({ "Error", "Failed to start service", std::nullopt });
+                PublishEvent({ "Error", "Failed to start service", std::nullopt });
                 return;
             }
             running_.store(true);
@@ -136,8 +126,8 @@ public:
             return false;
         }
         schema_ = schema;
-        if (!schema_->isFinalized()) { // Schema must be finalized to have access to instance data (size etc.)
-            PublishEvent({ "Warning", "Cannot setup schema: Schema not finalized", std::nullopt });
+        if (!schema_->isfinalised()) { // Schema must be finalised to have access to instance data (size etc.)
+            PublishEvent({ "Warning", "Cannot setup schema: Schema not finalised", std::nullopt });
             return false;
         }
         PublishEvent({ "Info", "Schema setup completed", std::nullopt });
@@ -167,20 +157,15 @@ public:
         }
     }
 
-    // Buffer API: Pure virtual for concrete implementations.
-    virtual bool TryAcquireSample(SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) override {
-        // Base implementation with schema validation.
-        bool result = DoTryAcquireSample(outHandle, outData, outSize, outMeta);
-        if (result && schema_->isFinalized() && outSize != schema_->instance_size()) {
-            PublishEvent({ "Warning", "Sample size does not match schema", std::nullopt });
-        }
+    virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) override {
+        bool result = DoTryAcquireSample(outHandle, instance);
         return result;
     }
 
     virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) override {
         //bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
         bool result = false;
-        if (result && schema_->isFinalized() && outSize != schema_->instance_size()) {
+        if (result && schema_->isfinalised() && outSize != schema_->instance_size()) {
             PublishEvent({ "Warning", "Sample size does not match schema", std::nullopt });
         }
         return result;
@@ -196,7 +181,7 @@ public:
 protected:
     virtual bool OnStart() {
         if (!schema_.has_value()) return false;
-        if (!schema_->isFinalized()) return false;
+        if (!schema_->isfinalised()) return false;
         return DoOnStart();
     }
 
@@ -236,7 +221,7 @@ protected:
 
     // Pure virtual
     virtual bool DoOnStart() = 0;
-    virtual bool DoTryAcquireSample(SampleHandle&, const uint8_t*&, size_t&, Sample&) = 0;
+    virtual bool DoTryAcquireSample(SampleHandle&, Instance&) = 0;
     virtual bool DoAcquireSample(std::chrono::milliseconds, SampleHandle&, const uint8_t*&, size_t&, Sample&) = 0;
     virtual void DoReleaseSample(SampleHandle) = 0;
 
