@@ -15,3 +15,6 @@ User actions:
 - configure project 'backend' (CSV/Parquet/Avro/Protobuf)
 - add signals to streams (schemas)
 - save and open project for analysis (offline project??)
+
+# System Layout
+![Signal Stream Layout](Signal%20Stream%20Layout.svg)

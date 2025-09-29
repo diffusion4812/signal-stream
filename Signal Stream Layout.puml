@@ -1,0 +1,70 @@
+@startuml Signal Stream Layout
+skinparam componentStyle rectangle
+title Signal Stream - System Overview
+
+rectangle "Source Data" as Service {
+  folder "Industrial Protocols" {
+    [OPC UA]
+    [Modbus TCP]
+    [MQTT]
+    [Serial]
+  }
+
+  [Base Service] as BaseService
+
+  note right of BaseService
+    Source Protocol Adapters extend
+    the base service class
+  end note
+  
+SchemaRegistry --> BaseService
+Instance --> BaseService : sample storage
+}
+
+rectangle "Storage" #LightYellow {
+  database "Online Storage" {
+    [Online Storage] as OnlineDataStorage
+  }
+  database "Offline Storage" {
+    [Offline Storage] as OfflineDataStorage
+  }
+  database "Project File Storage" {
+    [File Storage] as ProjectFileStorage
+  }
+}
+
+rectangle "Project" as Project #LightSlateGrey {
+  [Project Manager] as ProjectManager
+
+  collections "Services" as services
+
+ProjectManager <-u-> ProjectFileStorage
+ProjectManager <-u-> OfflineDataStorage
+ProjectManager <-u-> OnlineDataStorage
+}
+
+
+rectangle "User Interface" {
+  frame "Windows" as Windows #LightGreen {
+    skinparam nodesep 0
+    skinparam ranksep 0
+    skinparam componentStyle rectangle
+    [Signal Browser] as SignalBrowser
+    [Live View] as LiveView
+    [FPS] as FPS
+    [Analysis View] as AnalysisView
+    [Console] as Console
+
+    Windows -right[hidden]-> SignalBrowser
+    Windows -right[hidden]-> LiveView
+    Windows -right[hidden]-> FPS
+    Windows -right[hidden]-> AnalysisView
+    Windows -right[hidden]-> Console
+  }
+}
+
+Windows -down(0)-> Project : Open/Save Project
+ProjectManager -(0)-> Service : Start/Stop Service
+services -right[dashed]- Service
+
+@enduml
