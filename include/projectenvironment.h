@@ -14,6 +14,7 @@
 #include "service.h"
 #include "servicefactory.h"
 #include "schema.h"
+#include "storage.h"
 
 // Lambda computes the Kind
 Kind kind_from_str(std::string type_str) {

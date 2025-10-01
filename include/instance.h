@@ -2,6 +2,7 @@
 #include "schema.h"
 
 class Instance {
+private:
     const Schema& schema_;
     std::unique_ptr<std::byte> data_;
 
@@ -120,5 +121,9 @@ public:
         else {
             return std::nullopt;
         }
+    }
+
+    void* get_data() {
+        return data_.get();
     }
 };
