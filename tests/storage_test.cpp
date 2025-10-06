@@ -82,7 +82,11 @@ TEST(Manager, CreateManager) {
 }
 
 TEST(Manager, AddStream) {
-    bool ok = man->create_stream("teststream", StreamOptions{ 1024 * 1024, 10 }, schema.instance_size());
+    bool ok = man->create_stream("teststream", StreamOptions{
+        .capacity = 1024 * 1024,
+        .flush_batch_size = 0,
+        .flush_interval = std::chrono::milliseconds(0)
+        }, schema.instance_size());
     ASSERT_TRUE(ok);
 }
 
@@ -92,12 +96,12 @@ TEST(Manager, AppendToStream) {
     instance.set<int32_t>("field2", 24680);
     instance.set<int64_t>("field3", 54321);
     instance.set<int64_t>("field4", 13579);
-    for (auto i = 0; i < 3; i++)
+    for (auto i = 0; i < 1600; i++)
         man->append_batch_bytes("teststream",
             std::vector<uint8_t>(reinterpret_cast<uint8_t*>(instance.get_data()),
                 reinterpret_cast<uint8_t*>(instance.get_data()) + schema.instance_size())
         );
     auto records = man->stream_size("teststream").value();
     ColoredPrint(Color::YELLOW, "             teststream records stored = %d\n", records);
-    ASSERT_EQ(records, 3);
+    ASSERT_EQ(records, 1600);
 }

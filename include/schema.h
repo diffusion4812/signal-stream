@@ -1,4 +1,5 @@
 #pragma once
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -13,6 +14,9 @@
 #include <fstream>
 
 enum class Kind { Int32, Int64, Float, Double, String, Blob };
+
+Kind kindFromString(std::string type_str);
+const char* kindToString(Kind k);
 
 // Field descriptor
 struct FieldDesc {
@@ -56,6 +60,10 @@ public:
     void add_field(std::string name, Kind k) {
         if (finalised_) throw std::logic_error("Schema already finalised");
         fields_.push_back({ std::move(name), k, 0, size_of(k), align_of(k) });
+    }
+
+    std::vector<FieldDesc> get_fields() const {
+        return fields_;
     }
 
     void finalise() {

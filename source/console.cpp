@@ -26,11 +26,11 @@ void Console::updateRecentlyAddedItems() {
     }
 }
 
-int Console::getCount() const {
+size_t Console::getCount() const {
     return logItems.size();
 }
 
-int Console::getCountRecent() const {
+size_t Console::getCountRecent() const {
     return recentlyAddedItems.size();
 }
 

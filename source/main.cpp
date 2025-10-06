@@ -193,7 +193,10 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     state->fps = 0.0;
 
+    state->projectManager = new ProjectManager("C:/Users/LOAR02/Downloads/test_project.json");
+
     state->windows.push_back(std::make_unique<Window_FPS>(&state->fps));
+    state->windows.push_back(std::make_unique<Window_SignalBrowser>(state->projectManager));
 
     state->io_context = new boost::asio::io_context();
     state->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(state->io_context->get_executor());

@@ -10,6 +10,7 @@ include_directories(C:/Users/LOAR02/Source/Libraries)
 include_directories($ENV{BOOST_ROOT})
 
 include_directories(include)
+include_directories(include/window)
 include_directories(libs)
 
 link_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/lib)

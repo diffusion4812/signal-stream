@@ -7,6 +7,7 @@
 #include "tcpip.h"
 #include "buffer.h"
 #include "schema.h"
+#include "projectenvironment.h"
 
 typedef struct {
     Console* console;
@@ -28,6 +29,8 @@ typedef struct {
     SDL_Thread* ioThread;
 
     Schema* schema;
+    ProjectData* project;
+    ProjectManager* projectManager;
     SPSC_CircularBuffer<std::byte*>* buffer;
 
     std::vector<std::unique_ptr<IWindow>> windows;
