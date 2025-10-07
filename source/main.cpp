@@ -3,6 +3,7 @@
 #include <imgui_impl_sdlgpu3.h>
 
 #include <implot.h>
+#include <imfilebrowser.h>
 
 #include <iostream>
 #include <string>
@@ -35,6 +36,7 @@ static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
 static SDL_GPUDevice* gpu_device = NULL;
 static ImGuiIO io;
+ImGui::FileBrowser fileDialog;
 
 static const uint64_t idleThresholdNS = 3000000000;
 static const uint64_t minFrameTimeNS = 2000000; // 2ms minimum frame time to avoid busy-waiting
@@ -272,7 +274,8 @@ SDL_AppResult SDL_AppIterate(void* appstate)
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Open Project")) {
-            SDL_ShowOpenFileDialog(callback, appstate, nullptr, nullptr, 0, nullptr, false);
+            fileDialog.Open();
+            //SDL_ShowOpenFileDialog(callback, appstate, nullptr, nullptr, 0, nullptr, false);
         }
         if (ImGui::MenuItem("Exit")) {
             return SDL_APP_SUCCESS;
@@ -292,6 +295,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
         ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
+    fileDialog.Display();
 
     for (auto& window : state->windows) {
         window->Draw();

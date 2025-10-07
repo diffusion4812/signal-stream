@@ -35,6 +35,7 @@ public:
     ProjectManager(std::string path) {
         std::string err;
         LoadProjectFromFile(path, data_, err);
+        LoadProject(data_, false, err);
     }
 
     ~ProjectManager() { StopAllServices(); }
