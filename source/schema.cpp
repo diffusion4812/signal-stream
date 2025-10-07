@@ -1,9 +1,24 @@
 #include "schema.h"
 
+constexpr uint32_t fnv1a_32(std::string_view s) {
+    uint32_t hash = 2166136261u;
+    for (char c : s) {
+        hash ^= static_cast<uint8_t>(c);
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
 Kind kindFromString(std::string type_str) {
-    if (type_str == "int32") return Kind::Int32;
-    else if (type_str == "float64") return Kind::Float;
-    else throw std::runtime_error("Unsupported type: " + type_str);  // Or return a default
+    switch (fnv1a_32(type_str)) {
+        case fnv1a_32("int32"):  return Kind::Int32;
+        case fnv1a_32("int64"):  return Kind::Int64;
+        case fnv1a_32("float"):  return Kind::Float;
+        case fnv1a_32("double"):  return Kind::Double;
+        case fnv1a_32("string"):  return Kind::String;
+        case fnv1a_32("blob"):  return Kind::Blob;
+        default: throw std::runtime_error("Unsupported type: " + type_str);
+    }
     return Kind::Int32; // Default type
 };
 

@@ -61,7 +61,7 @@ static void SDLCALL callback(void* userdata, const char* const* filelist, int fi
     }
 
     while (*filelist) {
-        prepAndReadFile(userdata, *filelist);
+        // prepAndReadFile(userdata, *filelist);
         filelist++;
     }
 }
@@ -193,7 +193,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     state->fps = 0.0;
 
-    state->projectManager = new ProjectManager("C:/Users/LOAR02/Downloads/test_project.json");
+    state->projectManager = new ProjectManager("C:/users/LOAR02/Source/signal-stream/tests/project2.json");
 
     state->windows.push_back(std::make_unique<Window_FPS>(&state->fps));
     state->windows.push_back(std::make_unique<Window_SignalBrowser>(state->projectManager));
@@ -271,7 +271,7 @@ SDL_AppResult SDL_AppIterate(void* appstate)
             }
             ImGui::EndMenu();
         }
-        if (ImGui::MenuItem("Open CSV")) {
+        if (ImGui::MenuItem("Open Project")) {
             SDL_ShowOpenFileDialog(callback, appstate, nullptr, nullptr, 0, nullptr, false);
         }
         if (ImGui::MenuItem("Exit")) {

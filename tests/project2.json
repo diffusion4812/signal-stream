@@ -1,0 +1,27 @@
+{
+  "name": "Test Project",
+  "streams": [
+    {
+      "name": "my random data",
+      "type": "Random",
+      "signals": [
+        { "name": "signal1", "type": "int32", "unit": "Celsius" },
+        { "name": "signal2", "type": "int32", "unit": "RPM" }
+      ]
+    },
+    {
+      "name": "my random data2",
+      "type": "Random",
+      "signals": [
+        { "name": "signal1", "type": "int32", "unit": "Celsius" },
+        { "name": "signal2", "type": "int32", "unit": "Celsius" },
+        { "name": "signal3", "type": "int32", "unit": "Celsius" },
+        { "name": "signal4", "type": "int32", "unit": "Celsius" },
+        { "name": "signal5", "type": "int32", "unit": "Celsius" },
+        { "name": "signal____asdasd6", "type": "int64", "unit": "Celsius" },
+        { "name": "signal with spaces 7", "type": "int32", "unit": "Celsius" },
+        { "name": "signal8", "type": "int32", "unit": "RPM" }
+      ]
+    }
+  ]
+}

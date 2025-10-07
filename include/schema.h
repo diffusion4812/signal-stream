@@ -12,9 +12,11 @@
 #include <iostream>
 #include <algorithm>
 #include <fstream>
+#include <string_view>
 
 enum class Kind { Int32, Int64, Float, Double, String, Blob };
 
+constexpr uint32_t fnv1a_32(std::string_view s);
 Kind kindFromString(std::string type_str);
 const char* kindToString(Kind k);
 
