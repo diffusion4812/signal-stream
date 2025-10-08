@@ -1,16 +1,15 @@
 #pragma once
 
-#include "window.h"
-#include "csv.h"
-#include "console.h"
 #include <boost/asio.hpp>
-#include "tcpip.h"
-#include "buffer.h"
-#include "schema.h"
-#include "projectenvironment.h"
 
-typedef struct {
+class Console;
+class IWindow;
+class ProjectManager;
+class Schema;
+
+struct AppState {
     Console* console;
+    bool consoleIsOpen;
 
     bool show_debug_log;
     bool show_metrics_window;
@@ -21,19 +20,13 @@ typedef struct {
     uint64_t frameCount;
     uint64_t lastTime;
 
-    std::vector<CSVFile> csvFiles;
-    bool consoleIsOpen;
 
     boost::asio::io_context* io_context;
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     SDL_Thread* ioThread;
 
     Schema* schema;
-    ProjectData* project;
     ProjectManager* projectManager;
-    SPSC_CircularBuffer<std::byte*>* buffer;
 
     std::vector<std::unique_ptr<IWindow>> windows;
-    std::vector<std::unique_ptr<Server>> servers;
-    std::vector<std::unique_ptr<Session>> sessions;
-} AppState;
+};

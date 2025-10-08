@@ -46,6 +46,17 @@ struct Sample {
 
 using SampleHandle = std::uintptr_t;
 
+class LoopbackCallback {
+    public:
+        LoopbackCallback() {}
+        void Publish(const ServiceEvent& ev) {
+            event_ = std::move(ev);
+        }
+
+    private:
+        ServiceEvent event_;
+};
+
 // Abstract interface for services.
 class IService {
 public:
@@ -59,6 +70,7 @@ public:
     virtual bool SetupSchema(const Schema& schema) = 0;
     using ServiceCallback = std::function<void(const ServiceEvent&)>;
     virtual std::size_t RegisterCallback(ServiceCallback cb) = 0;
+    LoopbackCallback loopbackCallback;
     virtual void UnregisterCallback(std::size_t handle) = 0;
 
     virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) = 0;
@@ -227,10 +239,12 @@ protected:
 
     SourceData source_;
     std::optional<Schema> schema_; // Integrated schema
+    LoopbackCallback loopbackCallback_;
 
 private:
     std::recursive_mutex cbMtx_;
     std::vector<std::pair<std::size_t, ServiceCallback>> callbacks_;
+
     std::size_t nextCallbackHandle_;
 
     std::atomic<bool> running_;

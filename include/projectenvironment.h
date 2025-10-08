@@ -40,6 +40,16 @@ public:
 
     ~ProjectManager() { StopAllServices(); }
 
+    bool LoadProjectFromPath(std::string path, bool autoStart, ErrorString& outError) {
+        ProjectData pdata;
+        std::string err;
+        if (!LoadProjectFromFile(path, pdata, err)) {
+            outError = "failed to load project file: " + err;
+            return false;
+        }
+        return LoadProject(std::move(pdata), autoStart, outError);
+    }
+
     // Load project data (replace existing project). If 'autoStart' true, attempt to start services.
     // Returns true on success; on failure outError is filled.
     bool LoadProject(ProjectData pdata, bool autoStart, ErrorString& outError) {
@@ -65,8 +75,10 @@ public:
                 services_.clear();
                 return false;
             }
-            // attach a forwarding callback so ProjectManager can publish global events
-            //AttachForwardingCallbackUnlocked(desc, svc);
+
+            svc->RegisterCallback([&svc](const ServiceEvent& ev) {
+                svc->loopbackCallback.Publish(ev);
+                });
             services_.emplace(desc.name, svc);
         }
 
@@ -103,14 +115,10 @@ public:
                 }
             }
             catch (const std::exception& ex) {
-                outError = "Failed to start service " + kv.first + ": " + ex.what();
-                running_ = false;  // Reset on failure
-                return false;
+                throw std::runtime_error("Failed to start service " + kv.first + ": " + ex.what());
             }
             if (kv.second->Status() != ServiceStatus::Running) {
-                outError = "Failed to start service " + kv.first;
-                running_ = false;
-                return false;
+                throw std::runtime_error("Failed to start service " + kv.first);
             }
         }
         running_ = true;
@@ -127,13 +135,12 @@ public:
     bool StartService(const std::string& streamName, ErrorString& outError) {
         std::lock_guard<std::mutex> lk(mtx_);
         auto it = services_.find(streamName);
-        if (it == services_.end()) { outError = "service not found: " + streamName; return false; }
+        if (it == services_.end()) { throw std::runtime_error("service not found: " + streamName); }
         try {
             it->second->Start();
         }
         catch (const std::exception& ex) {
-            outError = "failed to start service " + streamName + ": " + ex.what();
-            return false;
+            throw std::runtime_error("failed to start service " + streamName + ": " + ex.what());
         }
         return true;
     }
@@ -142,13 +149,12 @@ public:
     bool StopService(const std::string& streamName, ErrorString& outError) {
         std::lock_guard<std::mutex> lk(mtx_);
         auto it = services_.find(streamName);
-        if (it == services_.end()) { outError = "service not found: " + streamName; return false; }
+        if (it == services_.end()) { throw std::runtime_error("service not found: " + streamName); }
         try {
             it->second->Stop();
         }
         catch (const std::exception& ex) {
-            outError = "failed to stop service " + streamName + ": " + ex.what();
-            return false;
+            throw std::runtime_error("failed to stop service " + streamName + ": " + ex.what());
         }
         return true;
     }

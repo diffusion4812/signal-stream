@@ -1,10 +1,6 @@
 #pragma once
 
-#include "csv.h"
 #include <imgui.h>
-#include "implot.h"
-#include "console.h"
-#include "buffer.h"
 
 struct IWindow {
     virtual ~IWindow() = default;
@@ -33,9 +29,10 @@ private:
     bool fullscreen_ = false;
 };
 
-#include "window-analysis.h"
+//#include "window-analysis.h"
 #include "window-console.h"
+#include "window-signalbrowser.h"
+#include "window-filebrowser.h"
 #include "window-fps.h"
 #include "window-live.h"
 #include "window-openproject.h"
-#include "window-signalbrowser.h"

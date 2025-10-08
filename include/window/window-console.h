@@ -1,6 +1,7 @@
 #pragma once
 
 #include "window.h"
+#include "console.h"
 
 class Window_Console : public WindowCRTP<Window_Console> {
 public:

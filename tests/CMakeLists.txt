@@ -3,6 +3,7 @@ add_subdirectory(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0 googletest-b
 add_executable(project_test
     ../source/serviceregistration.cpp
     ../source/schema.cpp
+    ../source/projectenvironment.cpp
     project_test.cpp
 )
 add_executable(storage_test
