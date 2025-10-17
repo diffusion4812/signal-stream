@@ -4,14 +4,13 @@
 
 class Window_FPS : public WindowCRTP<Window_FPS> {
 public:
-    Window_FPS(double* fps) {
-        mFPS = fps;
-    }
+    Window_FPS(double* fps) : fps_(fps) {}
     void OnDraw() {
-        ImGui::Begin("FPS");
-        ImGui::Text("%.2f", *mFPS);
-        ImGui::End();
+        if (ImGui::Begin("FPS")) {
+            ImGui::Text("%.2f", *fps_);
+            ImGui::End();
+        }
     }
 private:
-    double* mFPS;
+    double* fps_;
 };

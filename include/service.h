@@ -16,6 +16,7 @@
 #include <cinttypes>
 #include <array>
 #include <iostream>  // For logging; replace with your library
+#include <SDL3/SDL_log.h>
 
 #include "project.h"
 #include "schema.h"  // Include the schema class
@@ -31,8 +32,17 @@ enum class ServiceStatus {
 };
 
 // Struct for service events.
+enum class EventType : uint8_t {
+    None         = 0,
+    Information  = 1,
+    Notification = 2,
+    Warning      = 3,
+    Alarm        = 4,
+    Critical     = 5
+};
+
 struct ServiceEvent {
-    std::string eventType;
+    EventType type;
     std::string message;
     std::optional<std::string> payload;
 };
@@ -45,17 +55,6 @@ struct Sample {
 };
 
 using SampleHandle = std::uintptr_t;
-
-class LoopbackCallback {
-    public:
-        LoopbackCallback() {}
-        void Publish(const ServiceEvent& ev) {
-            event_ = std::move(ev);
-        }
-
-    private:
-        ServiceEvent event_;
-};
 
 // Abstract interface for services.
 class IService {
@@ -70,12 +69,13 @@ public:
     virtual bool SetupSchema(const Schema& schema) = 0;
     using ServiceCallback = std::function<void(const ServiceEvent&)>;
     virtual std::size_t RegisterCallback(ServiceCallback cb) = 0;
-    LoopbackCallback loopbackCallback;
     virtual void UnregisterCallback(std::size_t handle) = 0;
 
     virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) = 0;
     virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) = 0;
     virtual void ReleaseSample(SampleHandle handle) = 0;
+
+    virtual ServiceEvent* GetLastEvent() = 0;
 };
 
 // Concrete base class with schema integration.
@@ -86,7 +86,14 @@ public:
         status_(ServiceStatus::Stopped),
         nextCallbackHandle_(1),
         running_(false),
-        schema_(schema) {
+        schema_(schema),
+        lastEvent_(EventType::None, "") {
+        RegisterCallback([this](const ServiceEvent& ev) { // Log and store last event
+            if (static_cast<uint8_t>(ev.type) > 1) {
+                SDL_Log(ev.message.c_str());
+                lastEvent_ = ev;
+            }
+        });
     }
 
     virtual ~ServiceBase() { Stop(); }
@@ -100,17 +107,17 @@ public:
         try {
             if (!OnStart()) {
                 status_.store(ServiceStatus::Error);
-                PublishEvent({ "Error", "Failed to start service", std::nullopt });
+                PublishEvent({ EventType::Critical, "Failed to start service", std::nullopt });
                 return;
             }
             running_.store(true);
             worker_ = std::jthread([this] { RunLoop(); });
             status_.store(ServiceStatus::Running);
-            PublishEvent({ "Info", "Service started successfully", std::nullopt });
+            PublishEvent({ EventType::Notification, "Service started successfully", std::nullopt });
         }
         catch (const std::exception& e) {
             status_.store(ServiceStatus::Error);
-            PublishEvent({ "Error", std::string("Exception during start: ") + e.what(), std::nullopt });
+            PublishEvent({ EventType::Critical, std::string("Exception during start: ") + e.what(), std::nullopt });
         }
     }
 
@@ -126,7 +133,7 @@ public:
         if (worker_.joinable()) worker_.join();
         OnStop();
         status_.store(ServiceStatus::Stopped);
-        PublishEvent({ "Info", "Service stopped", std::nullopt });
+        PublishEvent({ EventType::Notification, "Service stopped", std::nullopt });
     }
 
     ServiceStatus Status() const override { return status_.load(); }
@@ -134,22 +141,21 @@ public:
 
     bool SetupSchema(const Schema& schema) {
         if (status_.load() != ServiceStatus::Stopped) {
-            PublishEvent({ "Warning", "Cannot setup schema: Service not stopped", std::nullopt });
+            PublishEvent({ EventType::Notification, "Cannot setup schema: Service not stopped", std::nullopt });
             return false;
         }
         schema_ = schema;
         if (!schema_->isfinalised()) { // Schema must be finalised to have access to instance data (size etc.)
-            PublishEvent({ "Warning", "Cannot setup schema: Schema not finalised", std::nullopt });
+            PublishEvent({ EventType::Notification, "Cannot setup schema: Schema not finalised", std::nullopt });
             return false;
         }
-        PublishEvent({ "Info", "Schema setup completed", std::nullopt });
+        PublishEvent({ EventType::Notification, "Schema setup completed", std::nullopt });
         return true;
     }
 
     std::size_t RegisterCallback(ServiceCallback cb) override {
         if (!cb) {
-            std::cout << "[LOG] Invalid callback provided." << std::endl;
-            return 0;
+            throw std::invalid_argument("Callback cannot be null");
         }
         std::lock_guard<std::recursive_mutex> lk(cbMtx_);
         std::size_t h = nextCallbackHandle_++;
@@ -169,7 +175,12 @@ public:
         }
     }
 
+    ServiceEvent* GetLastEvent() {
+        return &lastEvent_;
+    }
+
     virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) override {
+        if (!running_.load()) return false;
         bool result = DoTryAcquireSample(outHandle, instance);
         return result;
     }
@@ -178,7 +189,7 @@ public:
         //bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
         bool result = false;
         if (result && schema_->isfinalised() && outSize != schema_->instance_size()) {
-            PublishEvent({ "Warning", "Sample size does not match schema", std::nullopt });
+            PublishEvent({ EventType::Notification, "Sample size does not match schema", std::nullopt });
         }
         return result;
     }
@@ -208,7 +219,7 @@ protected:
 
         for (auto& p : callbacksCopy) {
             try {
-                p.second(ev);
+                p.second(ev); // invoke callback
             }
             catch (const std::exception& e) {
                 std::cout << "[LOG] Exception in callback [" << p.first << " - " << "]: " << e.what() << std::endl;
@@ -222,7 +233,7 @@ protected:
                 RunOnce();
             }
             catch (const std::exception& e) {
-                PublishEvent({ "Error", std::string("Exception in RunOnce: ") + e.what(), std::nullopt });
+                PublishEvent({ EventType::Critical, std::string("Exception in RunOnce: ") + e.what(), std::nullopt });
             }
             std::unique_lock<std::mutex> lk(mtx_);
             cv_.wait_for(lk, std::chrono::milliseconds(200), [this] { return !running_.load(); });
@@ -238,14 +249,14 @@ protected:
     virtual void DoReleaseSample(SampleHandle) = 0;
 
     SourceData source_;
-    std::optional<Schema> schema_; // Integrated schema
-    LoopbackCallback loopbackCallback_;
+    std::optional<Schema> schema_;
 
 private:
     std::recursive_mutex cbMtx_;
+    std::size_t nextCallbackHandle_;
     std::vector<std::pair<std::size_t, ServiceCallback>> callbacks_;
 
-    std::size_t nextCallbackHandle_;
+    ServiceEvent lastEvent_;
 
     std::atomic<bool> running_;
     std::jthread worker_;

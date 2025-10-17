@@ -1,14 +1,5 @@
 #include "schema.h"
 
-constexpr uint32_t fnv1a_32(std::string_view s) {
-    uint32_t hash = 2166136261u;
-    for (char c : s) {
-        hash ^= static_cast<uint8_t>(c);
-        hash *= 16777619u;
-    }
-    return hash;
-}
-
 Kind kindFromString(std::string type_str) {
     switch (fnv1a_32(type_str)) {
         case fnv1a_32("int32"):  return Kind::Int32;

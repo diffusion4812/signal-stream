@@ -123,6 +123,24 @@ public:
         }
     }
 
+    std::string get_as_string(const std::string& name) {
+        const FieldDesc* f = schema_.find(name);
+        if (!f) return "";
+
+        if (f->kind == Kind::Int32) return std::to_string(*reinterpret_cast<const int32_t*>(ptr_at(f->offset)));
+        else if (f->kind == Kind::Int64) return std::to_string(*reinterpret_cast<const int64_t*>(ptr_at(f->offset)));
+        else if (f->kind == Kind::Float) return std::to_string(*reinterpret_cast<const float*>(ptr_at(f->offset)));
+        else if (f->kind == Kind::Double) return std::to_string(*reinterpret_cast<const double*>(ptr_at(f->offset)));
+        else if (f->kind == Kind::String) {
+            char* const* slot = reinterpret_cast<char* const*>(ptr_at(f->offset));
+            if (!*slot) return std::string{};
+            return std::string(*slot);
+        }
+        else {
+            return "";
+        }
+    }
+
     void* get_data() {
         return data_.get();
     }

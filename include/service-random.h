@@ -18,8 +18,7 @@ public:
 
     RandomDataService(const Schema& schema)
         : ServiceBase(schema),
-        gen_(std::random_device{}()),
-        dist_(0, 255) {
+        gen_(std::random_device{}()) {
     }
 
     // Non-blocking attempt to acquire one sample buffer.
@@ -28,7 +27,17 @@ public:
         for (const auto& f : schema_.value().fields()) {
             switch (f.kind) {
                 case Kind::Int32:
-                    instance.set<int32_t>(f.name, 1357924680);
+                    instance.set<int32_t>(f.name, static_cast<int32_t>(gen_()));
+                    break;
+                case Kind::Int64:
+                    instance.set<int64_t>(f.name, static_cast<int64_t>(gen_()));
+                    break;
+                case Kind::Float:
+                    instance.set<float>(f.name, static_cast<float>(gen_()));
+                    break;
+                case Kind::Double:
+                    instance.set<double>(f.name, static_cast<double>(gen_()));
+                    break;
             }
         }
         return true;
@@ -57,7 +66,7 @@ protected:
 
     void RunOnce() override {
         // Notify listeners
-        PublishEvent({ "info", "random buffer produced", {} });
+        PublishEvent({ EventType::Information, "random buffer produced", {} });
     }
 
 private:
@@ -69,7 +78,6 @@ private:
 
     // Simple RNG
     std::mt19937_64 gen_;
-    std::uniform_int_distribution<int16_t> dist_;
 
     // Sequence counter
     std::atomic<uint64_t> seq_{ 0 };

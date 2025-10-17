@@ -10,6 +10,7 @@
 #include <thread>
 #include <condition_variable>
 
+#include "hash.h"
 #include "project.h"
 #include "service.h"
 #include "servicefactory.h"
@@ -32,23 +33,14 @@ public:
 
     explicit ProjectManager() = default;
 
-    ProjectManager(std::string path) {
+    ProjectManager(std::string path, bool autostart) : path_(path) {
         std::string err;
-        LoadProjectFromFile(path, data_, err);
-        LoadProject(data_, false, err);
+        LoadProjectFromFile(path_, data_, err);
+        LoadProject(data_, autostart, err);
+        hash_ = fnv1a_32(path_);
     }
 
     ~ProjectManager() { StopAllServices(); }
-
-    bool LoadProjectFromPath(std::string path, bool autoStart, ErrorString& outError) {
-        ProjectData pdata;
-        std::string err;
-        if (!LoadProjectFromFile(path, pdata, err)) {
-            outError = "failed to load project file: " + err;
-            return false;
-        }
-        return LoadProject(std::move(pdata), autoStart, outError);
-    }
 
     // Load project data (replace existing project). If 'autoStart' true, attempt to start services.
     // Returns true on success; on failure outError is filled.
@@ -75,10 +67,6 @@ public:
                 services_.clear();
                 return false;
             }
-
-            svc->RegisterCallback([&svc](const ServiceEvent& ev) {
-                svc->loopbackCallback.Publish(ev);
-                });
             services_.emplace(desc.name, svc);
         }
 
@@ -95,12 +83,21 @@ public:
                     return false;
                 }
             }
-            running_ = true;
-        }
-        else {
-            running_ = false;
         }
         return true;
+    }
+
+    std::string GetName() const {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return data_.name;
+    }
+
+    std::string GetPath() const {
+        return path_;
+    }
+
+    uint32_t GetHash() const {
+        return hash_;
     }
 
     // Start all services (idempotent). Returns true on success.
@@ -121,7 +118,6 @@ public:
                 throw std::runtime_error("Failed to start service " + kv.first);
             }
         }
-        running_ = true;
         return true;
     }
 
@@ -167,6 +163,11 @@ public:
         return (it != services_.end()) ? it->second : nullptr;
     }
 
+    std::unordered_map<std::string, ServicePtr> GetAllServices() const {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return services_;
+    }
+
     // Query project metadata
     ProjectData GetProjectData() const {
         std::lock_guard<std::mutex> lk(mtx_);
@@ -190,12 +191,6 @@ public:
                 [id](auto& p) { return p.first == id; }), globalCallbacks_.end());
     }
 
-    // Check if project currently has services running
-    bool IsRunning() const {
-        std::lock_guard<std::mutex> lk(mtx_);
-        return running_;
-    }
-
 private:
     // internal helpers (assumes mtx_ locked where noted)
     void StopAllServicesLocked() {
@@ -204,7 +199,6 @@ private:
             catch (...) {}
         }
         services_.clear();
-        running_ = false;
     }
 
     void finaliseAllSchemas() {
@@ -235,7 +229,9 @@ private:
     mutable std::mutex mtx_;
     ProjectData data_;
     std::unordered_map<std::string, ServicePtr> services_; // keyed by stream name
-    bool running_{ false };
+
+    std::string path_;
+    uint32_t hash_ = 0;
 
     // global event callbacks: pair(id, callback)
     std::vector<std::pair<std::size_t, GlobalEventCallback>> globalCallbacks_;

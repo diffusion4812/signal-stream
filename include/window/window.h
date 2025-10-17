@@ -5,6 +5,7 @@
 struct IWindow {
     virtual ~IWindow() = default;
     virtual void Draw() = 0;
+    virtual bool ShouldRemove() = 0;
 };
 
 template<typename Derived>
@@ -13,6 +14,14 @@ public:
     void Draw() {
         setFullscreen();
         static_cast<Derived*>(this)->OnDraw();
+    }
+
+    void SetRemove() {
+        shouldremove_ = true;
+    }
+
+    bool ShouldRemove() {
+        return shouldremove_;
     }
 
 private:
@@ -27,6 +36,7 @@ private:
     }
 
     bool fullscreen_ = false;
+    bool shouldremove_ = false;
 };
 
 //#include "window-analysis.h"

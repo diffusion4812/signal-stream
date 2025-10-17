@@ -11,7 +11,7 @@ set(LIBS_SRCS
 
     C:/Users/LOAR02/Source/Libraries/imgui_memory_editor.h
 
-    C:/Users/LOAR02/Source/Libraries/imfilebrowserplus.h
+    C:/Users/LOAR02/Source/Libraries/imgui-filebrowser/imfilebrowser.h
 
     C:/Users/LOAR02/Source/Libraries/rapidcsv.h
 

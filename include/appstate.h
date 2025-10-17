@@ -3,9 +3,10 @@
 #include <boost/asio.hpp>
 
 class Console;
-class IWindow;
+struct IWindow;
 class ProjectManager;
 class Schema;
+struct SDL_Thread;
 
 struct AppState {
     Console* console;
@@ -26,7 +27,7 @@ struct AppState {
     SDL_Thread* ioThread;
 
     Schema* schema;
-    ProjectManager* projectManager;
+    std::vector<std::unique_ptr<ProjectManager>> projects;
 
     std::vector<std::unique_ptr<IWindow>> windows;
 };

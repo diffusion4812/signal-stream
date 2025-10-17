@@ -1,9 +1,9 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
 #include <implot.h>
-#include <imfilebrowserplus.h>
 
 #include <iostream>
 #include <string>
@@ -135,8 +135,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     state->fps = 0.0;
     state->windows.push_back(std::make_unique<Window_FPS>(&state->fps));
 
-    state->projectManager = new ProjectManager();
-
     state->io_context = new boost::asio::io_context();
     state->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(state->io_context->get_executor());
     state->ioThread = SDL_CreateThread(IOThread, "IOThread", state->io_context);
@@ -191,19 +189,6 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
 
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::BeginMenu("New Project")) {
-                if (ImGui::MenuItem("TCP/IP")) {
-                    state->schema = new Schema();
-                    state->schema->add_field("timestamp", Kind::Int64);
-                    state->schema->add_field("value", Kind::Double);
-                    state->schema->finalise();
-                }
-                if (ImGui::MenuItem("Open Serial")) {
-                    // Placeholder for future Serial functionality
-                    SDL_Log("Serial functionality not implemented yet.");
-                }
-                ImGui::EndMenu();
-            }
             if (ImGui::MenuItem("Open Project")) {
                 state->windows.push_back(std::make_unique<Window_FileBrowser>(state));
             }
@@ -230,6 +215,11 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     for (auto& window : state->windows) {
         window->Draw();
     }
+
+    state->windows.erase(
+        std::remove_if(state->windows.begin(), state->windows.end(),
+            [](const std::unique_ptr<IWindow>& w) { return w && w->ShouldRemove(); }),
+        state->windows.end());
 
     if (state->show_metrics_window) {
         ImGui::ShowMetricsWindow(&state->show_metrics_window);

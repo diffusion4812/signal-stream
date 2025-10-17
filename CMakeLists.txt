@@ -1,9 +1,14 @@
 cmake_minimum_required(VERSION 3.13)
-project(signal-stream LANGUAGES CXX)
+project(signal-stream
+        LANGUAGES CXX
+        VERSION 1.0
+        DESCRIPTION "Signal Stream"
+        HOMEPAGE_URL "")
 
 include_directories(C:/Users/LOAR02/Source/Libraries/SDL3-x64/include)
 include_directories(C:/Users/LOAR02/Source/Libraries/imgui-docking)
 include_directories(C:/Users/LOAR02/Source/Libraries/imgui-docking/backends)
+include_directories(C:/Users/LOAR02/Source/Libraries/imgui-filebrowser)
 include_directories(C:/Users/LOAR02/Source/Libraries/implot-master)
 include_directories(C:/Users/LOAR02/Source/Libraries/tinycc/win32/libtcc)
 include_directories(C:/Users/LOAR02/Source/Libraries)

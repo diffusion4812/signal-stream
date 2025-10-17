@@ -14,6 +14,8 @@
 #include <fstream>
 #include <string_view>
 
+#include "hash.h"
+
 enum class Kind { Int32, Int64, Float, Double, String, Blob };
 
 constexpr uint32_t fnv1a_32(std::string_view s);
