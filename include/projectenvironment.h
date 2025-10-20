@@ -12,6 +12,7 @@
 
 #include "hash.h"
 #include "project.h"
+#include "storage-manager.h"
 #include "service.h"
 #include "servicefactory.h"
 #include "schema.h"
@@ -35,6 +36,7 @@ public:
 
     ProjectManager(std::string path, bool autostart) : path_(path) {
         std::string err;
+        storage_.start();
         LoadProjectFromFile(path_, data_, err);
         LoadProject(data_, autostart, err);
         hash_ = fnv1a_32(path_);
@@ -61,13 +63,22 @@ public:
                 services_.clear();
                 return false;
             }
-            auto svc = CreateServiceByType(desc.type, desc.schema);
+            storage_.create_stream(
+                desc.name,
+                StreamOptions{
+                    .capacity = 1024 * 1024,
+                    .flush_batch_size = 0,
+                    .flush_interval = std::chrono::milliseconds(0)
+                },
+                desc.schema.instance_size()
+            ); // Assign storage
+            auto svc = CreateServiceByType(desc.name, desc.type, desc.schema, storage_);
             if (!svc) {
                 outError = "no factory for service type: " + desc.type + " (stream: " + desc.name + ")";
                 services_.clear();
                 return false;
             }
-            services_.emplace(desc.name, svc);
+            services_.emplace(desc.name, svc); // Emplace service
         }
 
         if (autoStart) {
@@ -236,4 +247,7 @@ private:
     // global event callbacks: pair(id, callback)
     std::vector<std::pair<std::size_t, GlobalEventCallback>> globalCallbacks_;
     std::size_t nextGlobalCallbackId_{ 0 };
+
+    // Data storage
+    StorageManager storage_;
 };

@@ -16,12 +16,8 @@
 #include <deque>
 #include <optional>
 
-#include "service.h"
-
 // timestamp alias
 using ts_t = std::int64_t;
-
-
 
 // Byte-oriented StreamBuffer: fixed-size record layout stored in a contiguous byte ring.
 // - Each record is exactly recordSize bytes.

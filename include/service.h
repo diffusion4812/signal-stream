@@ -18,6 +18,7 @@
 #include <iostream>  // For logging; replace with your library
 #include <SDL3/SDL_log.h>
 
+#include "storage-manager.h"
 #include "project.h"
 #include "schema.h"  // Include the schema class
 #include "instance.h" // Include the instance class for schema integration
@@ -81,7 +82,7 @@ public:
 // Concrete base class with schema integration.
 class ServiceBase : public IService {
 public:
-    explicit ServiceBase(const Schema& schema)
+    explicit ServiceBase(const std::string& name, const Schema& schema, StorageManager& storage)
         :
         status_(ServiceStatus::Stopped),
         nextCallbackHandle_(1),
@@ -94,6 +95,11 @@ public:
                 lastEvent_ = ev;
             }
         });
+        auto opt = storage.get_producer_token(name);
+        if (!opt) {
+            throw::std::runtime_error("Unable to obtain producer token: " + name);
+        }
+        token_ = *opt;
     }
 
     virtual ~ServiceBase() { Stop(); }
@@ -256,6 +262,7 @@ private:
     std::size_t nextCallbackHandle_;
     std::vector<std::pair<std::size_t, ServiceCallback>> callbacks_;
 
+
     ServiceEvent lastEvent_;
 
     std::atomic<bool> running_;
@@ -263,4 +270,7 @@ private:
     std::mutex mtx_;
     std::condition_variable cv_;
     std::atomic<ServiceStatus> status_;
+
+protected:
+    ProducerToken token_;
 };

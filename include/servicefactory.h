@@ -9,7 +9,7 @@
 #include "service.h" // IService, StreamDescriptor
 
 // Factory function type: create service instance for given descriptor
-using ServiceFactoryFn = std::function<std::shared_ptr<IService>(const Schema& schema)>;
+using ServiceFactoryFn = std::function<std::shared_ptr<IService>(const std::string& name, const Schema& schema, StorageManager& storage)>;
 
 // Registry accessor. Constructed on first use (C++11+ thread-safe).
 inline std::unordered_map<std::string, ServiceFactoryFn>& ServiceFactoryMap() {
@@ -40,9 +40,9 @@ inline bool RegisterServiceFactory(const std::string& type, ServiceFactoryFn fn)
     }
 
 // Lookup helper: create service by type; returns nullptr if type not found.
-inline std::shared_ptr<IService> CreateServiceByType(const std::string& type, const Schema& schema) {
+inline std::shared_ptr<IService> CreateServiceByType(const std::string& name, const std::string& type, const Schema& schema, StorageManager& storage) {
     auto& m = ServiceFactoryMap();
     auto it = m.find(type);
     if (it == m.end()) return nullptr;
-    return it->second(schema);
+    return it->second(name, schema, storage);
 }

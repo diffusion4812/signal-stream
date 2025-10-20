@@ -16,7 +16,7 @@
 #include <deque>
 #include <optional>
 
-#include "service.h"
+#include "storage-buffer.h"
 
 // timestamp alias
 using ts_t = std::int64_t;
@@ -44,6 +44,30 @@ struct StreamOptions {
     std::chrono::milliseconds flush_interval{ 1000 };
 };
 
+// Result codes for submit
+enum class SubmitResult { Accepted, Backpressure, UnknownStream };
+
+// Forward
+class StorageManager;
+
+// Lightweight producer handle returned to services.
+// Small wrapper that references the manager and target streamId.
+// All methods are thread-safe for typical use (delegates into manager).
+class ProducerToken {
+public:
+    ProducerToken() = default;
+    ProducerToken(StorageManager* mgr, std::string id) : mgr_(mgr), streamId_(std::move(id)) {}
+
+    // Non-blocking submit: attempts to enqueue the batch for async persistence.
+    SubmitResult try_submit(std::vector<uint8_t>&& batch) const;
+
+    const std::string& stream_id() const { return streamId_; }
+
+private:
+    StorageManager* mgr_ = nullptr;
+    std::string streamId_;
+};
+
 class StorageManager {
 public:
     // ctor/dtor
@@ -67,7 +91,7 @@ public:
         for (size_t i = 0; i < flusherThreads_; ++i) {
             flushers_.emplace_back(&StorageManager::flusher_loop, this);
         }
-        timerThread_ = std::thread(&StorageManager::timer_loop, this);
+        //timerThread_ = std::thread(&StorageManager::timer_loop, this);
         running_ = true;
     }
 
@@ -120,6 +144,32 @@ public:
         if (it == streams_.end()) return false;
         streams_.erase(it);
         return true;
+    }
+
+    // Acquire a token for a stream (cheap handle)
+    std::optional<ProducerToken> get_producer_token(const std::string& streamId) {
+        std::lock_guard<std::mutex> lk(streamsMtx_);
+        if (!streams_.count(streamId)) return std::nullopt;
+        return ProducerToken(this, streamId);
+    }
+
+    // Called by ProducerToken
+    SubmitResult submit_batch_for_stream(const std::string& streamId, std::vector<uint8_t>&& batch) {
+        // Verify stream exists
+        {
+            std::lock_guard<std::mutex> lk(streamsMtx_);
+            if (!streams_.count(streamId)) return SubmitResult::UnknownStream;
+        }
+
+        std::lock_guard<std::mutex> qlk(queueMtx_);
+        if (batchQueue_.size() >= queueCapacity_) {
+            // Backpressure hint to producer: queue full
+            return SubmitResult::Backpressure;
+        }
+
+        batchQueue_.emplace_back(streamId, std::move(batch));
+        cv_.notify_one();
+        return SubmitResult::Accepted;
     }
 
     // Writer APIs - accept already-serialized record bytes
@@ -264,7 +314,7 @@ private:
                     auto& id = kv.first;
                     auto& holder = kv.second;
                     size_t sz = holder.buffer->size();
-                    if (sz > 0 && sz < holder.opts.flush_batch_size) {
+                    if (sz > 0 && sz < holder.opts.flush_batch_size && holder.opts.flush_batch_size > 0) {
                         auto batch = holder.buffer->take_oldest_batch(sz);
                         if (!batch.empty()) toEnqueue.emplace_back(id, std::move(batch));
                     }
@@ -356,8 +406,8 @@ private:
         }
     }
 
-    // members (mutexes, threads, flags, containers) - not prototypes
     std::shared_ptr<StorageBackend> backend_;
+    size_t queueCapacity_;
     std::atomic<bool> stopFlag_;
     size_t flusherThreads_;
     bool running_ = false;
@@ -369,4 +419,6 @@ private:
     std::thread timerThread_; // optional timer to trigger small flushes
     std::mutex lifecycleMtx_;
     std::condition_variable cv_;
+
+    friend class ProducerToken;
 };

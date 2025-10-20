@@ -12,12 +12,12 @@
 class RandomDataService : public ServiceBase {
 public:
     // Create with a descriptor and a buffer capacity
-    static std::shared_ptr<RandomDataService> Create(const Schema& schema) {
-        return std::make_shared<RandomDataService>(schema);
+    static std::shared_ptr<RandomDataService> Create(const std::string& name, const Schema& schema, StorageManager& storage) {
+        return std::make_shared<RandomDataService>(name, schema, storage);
     }
 
-    RandomDataService(const Schema& schema)
-        : ServiceBase(schema),
+    RandomDataService(const std::string& name, const Schema& schema, StorageManager& storage)
+        : ServiceBase(name, schema, storage),
         gen_(std::random_device{}()) {
     }
 
@@ -67,6 +67,28 @@ protected:
     void RunOnce() override {
         // Notify listeners
         PublishEvent({ EventType::Information, "random buffer produced", {} });
+        Instance instance(schema_.value());
+        for (const auto& f : schema_.value().fields()) {
+            switch (f.kind) {
+            case Kind::Int32:
+                instance.set<int32_t>(f.name, static_cast<int32_t>(gen_()));
+                break;
+            case Kind::Int64:
+                instance.set<int64_t>(f.name, static_cast<int64_t>(gen_()));
+                break;
+            case Kind::Float:
+                instance.set<float>(f.name, static_cast<float>(gen_()));
+                break;
+            case Kind::Double:
+                instance.set<double>(f.name, static_cast<double>(gen_()));
+                break;
+            }
+        }
+        SubmitResult r = token_.try_submit(std::move(
+            std::vector<uint8_t>(reinterpret_cast<uint8_t*>(
+                instance.get_data()),
+                reinterpret_cast<uint8_t*>(instance.get_data()) + schema_.value().instance_size())));
+
     }
 
 private:
