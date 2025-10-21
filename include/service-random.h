@@ -71,7 +71,7 @@ protected:
         for (const auto& f : schema_.value().fields()) {
             switch (f.kind) {
             case Kind::Int32:
-                instance.set<int32_t>(f.name, static_cast<int32_t>(gen_()));
+                instance.set<int32_t>(f.name, static_cast<int32_t>(rand_between(0, 100, gen_)));
                 break;
             case Kind::Int64:
                 instance.set<int64_t>(f.name, static_cast<int64_t>(gen_()));
@@ -88,14 +88,21 @@ protected:
             std::vector<uint8_t>(reinterpret_cast<uint8_t*>(
                 instance.get_data()),
                 reinterpret_cast<uint8_t*>(instance.get_data()) + schema_.value().instance_size())));
-
     }
 
 private:
-    static uint64_t currentTimeNs() {
-        return static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count());
+    template <typename T>
+    T rand_between(T a, T b, std::mt19937_64& rng) {
+        if constexpr (std::is_integral_v<T>) {
+            // inclusive both ends for integers
+            std::uniform_int_distribution<T> dist(a, b);
+            return dist(rng);
+        }
+        else {
+            // [a, b) for floating points
+            std::uniform_real_distribution<T> dist(a, b);
+            return dist(rng);
+        }
     }
 
     // Simple RNG

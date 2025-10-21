@@ -102,7 +102,9 @@ public:
                             // TODO: Implement config dialog or callback
                         }
 
-                        ImGui::Text("Status: %s", svc->GetLastEvent()->message.c_str());
+                        ImGui::Text("Last event: %s", svc->GetLastEvent()->message.c_str());
+
+                        ImGui::ProgressBar(pm_->GetBufferHealth(source.name));
 
                         ImGui::Separator();
                         ImGui::Text("Schema:");

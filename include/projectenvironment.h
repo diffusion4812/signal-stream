@@ -65,11 +65,7 @@ public:
             }
             storage_.create_stream(
                 desc.name,
-                StreamOptions{
-                    .capacity = 1024 * 1024,
-                    .flush_batch_size = 0,
-                    .flush_interval = std::chrono::milliseconds(0)
-                },
+                StreamOptions{},
                 desc.schema.instance_size()
             ); // Assign storage
             auto svc = CreateServiceByType(desc.name, desc.type, desc.schema, storage_);
@@ -153,15 +149,15 @@ public:
     }
 
     // Stop a specific service
-    bool StopService(const std::string& streamName, ErrorString& outError) {
+    bool StopService(const std::string& servicename, ErrorString& outError) {
         std::lock_guard<std::mutex> lk(mtx_);
-        auto it = services_.find(streamName);
-        if (it == services_.end()) { throw std::runtime_error("service not found: " + streamName); }
+        auto it = services_.find(servicename);
+        if (it == services_.end()) { throw std::runtime_error("service not found: " + servicename); }
         try {
             it->second->Stop();
         }
         catch (const std::exception& ex) {
-            throw std::runtime_error("failed to stop service " + streamName + ": " + ex.what());
+            throw std::runtime_error("failed to stop service " + servicename + ": " + ex.what());
         }
         return true;
     }
@@ -183,6 +179,16 @@ public:
     ProjectData GetProjectData() const {
         std::lock_guard<std::mutex> lk(mtx_);
         return data_;
+    }
+
+    float GetBufferHealth(const std::string& servicename) const {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return storage_.GetBufferHealth(servicename).value_or(0.0f);
+    }
+
+    StreamBufferHandle GetBufferHandle(const std::string& servicename) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return storage_.GetBufferHandle(servicename).value();
     }
 
     // Register a global event callback invoked when any service emits an event.

@@ -40,42 +40,56 @@ public:
         count_(0) {
     }
 
-    // Append one record (data must point to recordSize_ bytes). Returns false if full.
-    bool append(const uint8_t* data, size_t len) {
-        if (len != recordSize_) return false;
-        if (is_full()) return false;
-        write_at(tail_, data, recordSize_);
+    bool append(std::vector<uint8_t>&& batch) {
+        if (batch.size() != recordSize_) return false;
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (is_full_locked()) return false;
+        write_at(tail_, batch.data(), recordSize_);
         tail_ = (tail_ + recordSize_) % capacityBytes_;
         ++count_;
         return true;
     }
 
-    // Append contiguous batch of records (len must be multiple of recordSize_). Returns number of records appended.
-    size_t append_batch(const uint8_t* data, size_t len) {
-        if (len == 0) return 0;
-        if (len % recordSize_ != 0) return 0;
-        size_t recs = len / recordSize_;
-        size_t appended = 0;
-        for (size_t i = 0; i < recs; ++i) {
-            if (!append(data + i * recordSize_, recordSize_)) break;
-            ++appended;
-        }
-        return appended;
+    size_t append_batch(std::vector<uint8_t>&& batch) {
+        if (batch.empty()) return 0;
+        if (batch.size() % recordSize_ != 0) return 0;
+        size_t recs = batch.size() / recordSize_;
+
+        std::lock_guard<std::mutex> lk(mtx_);
+        size_t freeRecs = capacity_records_locked() - count_;
+        if (freeRecs == 0) return 0;
+
+        size_t toAppendRecs = std::min(recs, freeRecs);
+        size_t bytesToWrite = toAppendRecs * recordSize_;
+        const uint8_t* src = batch.data();
+        write_at(tail_, src, bytesToWrite);
+        tail_ = (tail_ + bytesToWrite) % capacityBytes_;
+        count_ += toAppendRecs;
+        return toAppendRecs;
     }
 
     // Extract up to 'count' oldest records and return them concatenated.
     // Removes them from the buffer.
-    std::vector<uint8_t> take_oldest_batch(size_t count) {
+    std::vector<uint8_t> take_oldest_batch(size_t req_count) {
+        std::lock_guard<std::mutex> lk(mtx_);
         std::vector<uint8_t> out;
-        if (count == 0 || empty()) return out;
-        size_t to_take = std::min(count, count_);
-        out.resize(to_take * recordSize_);
-        for (size_t i = 0; i < to_take; ++i) {
-            read_at(head_, out.data() + i * recordSize_, recordSize_);
-            head_ = (head_ + recordSize_) % capacityBytes_;
+        if (req_count == 0 || count_ == 0) return out;
+        size_t to_take = std::min(req_count, count_);
+        size_t bytesToRead = to_take * recordSize_;
+        out.resize(bytesToRead);
+
+        if (head_ + bytesToRead <= capacityBytes_) {
+            std::memcpy(out.data(), &buf_[head_], bytesToRead);
+            head_ = (head_ + bytesToRead) % capacityBytes_;
         }
+        else {
+            size_t first = capacityBytes_ - head_;
+            std::memcpy(out.data(), &buf_[head_], first);
+            std::memcpy(out.data() + first, &buf_[0], bytesToRead - first);
+            head_ = (head_ + bytesToRead) % capacityBytes_;
+        }
+
         count_ -= to_take;
-        // If buffer was emptied, reset pointers to 0 for simpler reuse (optional)
         if (count_ == 0) { head_ = tail_ = 0; }
         return out;
     }
@@ -83,58 +97,104 @@ public:
     // Return latest up to n records, newest-first, concatenated in returned vector.
     // This does NOT remove them.
     std::vector<uint8_t> latest(size_t n) const {
+        std::lock_guard<std::mutex> lk(mtx_);
         std::vector<uint8_t> out;
-        if (n == 0 || empty()) return out;
+        if (n == 0 || count_ == 0) return out;
         size_t to_take = std::min(n, count_);
-        out.resize(to_take * recordSize_);
-        // walk from newest backwards
+        size_t bytesToRead = to_take * recordSize_;
+        out.resize(bytesToRead);
+
+        // compute start position of newest block (newest-first in output)
+        // We'll fill output with newest at offset 0, next newest at offset recordSize_, ...
         size_t cur = (tail_ + capacityBytes_ - recordSize_) % capacityBytes_;
+        // For performance, if the set of records we want is contiguous in the circular buffer
+        // it's tricky because newest-first reverses order. We'll implement a simple loop with read_at,
+        // but keep it efficient by using read_at for record-size chunks (read_at already handles wrap).
         for (size_t i = 0; i < to_take; ++i) {
-            // place newest-first: output [0..] = newest, next newest, ...
             read_at(cur, out.data() + i * recordSize_, recordSize_);
             cur = (cur + capacityBytes_ - recordSize_) % capacityBytes_;
         }
         return out;
-    }
-
-    // Number of stored records
-    size_t size() const {
-        return count_;
-    }
-
-    // Capacity in records
-    size_t capacity_records() const {
-        return capacityBytes_ / recordSize_;
     }
     
     // Query by timestamp requires that caller knows record layout and can inspect timestamp
     // in-place. This function returns concatenated records that match a provided predicate.
     // The predicate receives a pointer to the record bytes (size recordSize_) and must return bool.
     std::vector<uint8_t> query_if(std::function<bool(const uint8_t* record)> predicate) const {
+        std::lock_guard<std::mutex> lk(mtx_);
         std::vector<uint8_t> out;
-        if (empty()) return out;
-        // We'll collect matches into a temp vector
-        std::vector<uint8_t> tmp;
-        tmp.reserve(count_ * recordSize_);
+        if (count_ == 0) return out;
+        // Reserve pessimistically
+        out.reserve(count_ * recordSize_);
         size_t cur = head_;
+        std::vector<uint8_t> tmp(recordSize_);
         for (size_t i = 0; i < count_; ++i) {
-            std::vector<uint8_t> rec(recordSize_);
-            read_at(cur, rec.data(), recordSize_);
-            if (predicate(rec.data())) {
-                tmp.insert(tmp.end(), rec.begin(), rec.end());
+            read_at(cur, tmp.data(), recordSize_);
+            if (predicate(tmp.data())) {
+                out.insert(out.end(), tmp.begin(), tmp.end());
             }
             cur = (cur + recordSize_) % capacityBytes_;
         }
-        return tmp;
+        return out;
     }
 
-    bool empty() const { return count_ == 0; }
-    bool is_full() const { return count_ >= capacity_records(); }
+    // returns records ordered oldest -> newest (easier for plotting)
+    std::vector<std::pair<ts_t, std::vector<uint8_t>>> latest_parsed(size_t n) const {
+        std::vector<std::pair<ts_t, std::vector<uint8_t>>> out;
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (n == 0 || count_ == 0) return out;
+        size_t take = std::min(n, count_);
+        // read oldest->newest: find start index for oldest of the 'take' newest records
+        size_t start_index = (count_ >= take) ? (count_ - take) : 0;
+        size_t start_byte = (head_ + start_index * recordSize_) % capacityBytes_;
+        // Copy concatenated bytes in two-chunk fashion
+        size_t bytesToRead = take * recordSize_;
+        std::vector<uint8_t> buf(bytesToRead);
+        if (start_byte + bytesToRead <= capacityBytes_) {
+            std::memcpy(buf.data(), &buf_[start_byte], bytesToRead);
+        }
+        else {
+            size_t first = capacityBytes_ - start_byte;
+            std::memcpy(buf.data(), &buf_[start_byte], first);
+            std::memcpy(buf.data() + first, &buf_[0], bytesToRead - first);
+        }
+        // parse records
+        out.reserve(take);
+        for (size_t i = 0; i < take; ++i) {
+            const uint8_t* recptr = buf.data() + i * recordSize_;
+            ts_t ts;
+            std::memcpy(&ts, recptr, kTimestampBytes); // host endianness
+            std::vector<uint8_t> payload(recptr + kTimestampBytes, recptr + recordSize_);
+            out.emplace_back(ts, std::move(payload));
+        }
+        return out;
+    }
 
-    // Clear buffer (drops all records)
     void clear() {
+        std::lock_guard<std::mutex> lk(mtx_);
         head_ = 0;
+        tail_ = 0;
         count_ = 0;
+    }
+
+    size_t size() const {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return count_;
+    }
+
+    bool empty() const {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return count_ == 0;
+    }
+
+    bool is_full() const {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return is_full_locked();
+    }
+
+    // Capacity in records
+    size_t capacity_records() const {
+        return capacityBytes_ / recordSize_;
     }
 
     // Record size in bytes
@@ -157,6 +217,12 @@ private:
             std::memcpy(dst + first, &buf_[0], len - first);
         }
     }
+
+    bool is_full_locked() const { return count_ >= capacityBytes_ / recordSize_; }
+    size_t capacity_records_locked() const { return capacityBytes_ / recordSize_; }
+
+    mutable std::mutex mtx_; // protects all public state below
+    static constexpr size_t kTimestampBytes = sizeof(ts_t);
 
     const size_t recordSize_;
     const size_t capacityBytes_;

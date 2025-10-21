@@ -5,8 +5,7 @@
       "name": "my random data",
       "type": "Random",
       "signals": [
-        { "name": "signal1", "type": "int32", "unit": "Celsius" },
-        { "name": "signal2", "type": "int32", "unit": "RPM" }
+        { "name": "signal1", "type": "int32", "unit": "Celsius" }
       ]
     }
   ]

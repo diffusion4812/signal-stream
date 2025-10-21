@@ -192,6 +192,9 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
             if (ImGui::MenuItem("Open Project")) {
                 state->windows.push_back(std::make_unique<Window_FileBrowser>(state));
             }
+            if (ImGui::MenuItem("Open asdasdroject")) {
+                state->windows.push_back(std::make_unique<Window_Live>(state->projects[0].get()));
+            }
             if (ImGui::MenuItem("Exit")) {
                 return SDL_APP_SUCCESS;
             }

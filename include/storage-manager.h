@@ -37,7 +37,7 @@ struct NullBackend : public StorageBackend {
 // Stream configuration options
 struct StreamOptions {
     // capacity expressed in number of bytes for the ring buffer backing this stream
-    size_t capacity = 4 * 1024 * 1024;
+    size_t capacity = 1 * 8 * 1024;
     // flush batch size expressed in number of records
     size_t flush_batch_size = 128;
     // timer interval used by timer_loop (not strictly required if you set 0)
@@ -45,7 +45,7 @@ struct StreamOptions {
 };
 
 // Result codes for submit
-enum class SubmitResult { Accepted, Backpressure, UnknownStream };
+enum class SubmitResult { Accepted, Backpressure, InvalidPayloadSize, UnknownStream };
 
 // Forward
 class StorageManager;
@@ -68,6 +68,15 @@ private:
     std::string streamId_;
 };
 
+// RAII handle that keeps the streams mutex locked while alive
+struct StreamBufferHandle {
+    std::unique_lock<std::mutex> lock; // holds the streams container lock
+    StreamBuffer* buf;                 // non-owning pointer valid while lock held
+
+    StreamBuffer* get() const noexcept { return buf; }
+    explicit operator bool() const noexcept { return buf != nullptr; }
+};
+
 class StorageManager {
 public:
     // ctor/dtor
@@ -88,10 +97,6 @@ public:
         std::lock_guard<std::mutex> lk(lifecycleMtx_);
         if (running_) return;
         stopFlag_.store(false);
-        for (size_t i = 0; i < flusherThreads_; ++i) {
-            flushers_.emplace_back(&StorageManager::flusher_loop, this);
-        }
-        //timerThread_ = std::thread(&StorageManager::timer_loop, this);
         running_ = true;
     }
 
@@ -109,9 +114,6 @@ public:
         }
         flushers_.clear();
 
-        // drain queue synchronously
-        drain_queue_on_shutdown();
-
         if (flush_all) {
             force_flush_all();
         }
@@ -121,20 +123,25 @@ public:
 
     // Stream lifecycle (ProjectManager calls these)
     // recordSizeBytes: size of each record for this stream (fixed)
-    bool create_stream(const std::string& streamId, const StreamOptions& opts, size_t recordSizeBytes) {
-        std::lock_guard<std::mutex> lk(streamsMtx_);
-        if (streams_.count(streamId)) return false;
+    bool create_stream(const std::string& streamId, const StreamOptions& opts, size_t userRecordSize) {
+        constexpr size_t ts_bytes = sizeof(ts_t);
+        size_t recordSize = ts_bytes + userRecordSize;
 
-        auto buf = std::make_unique<StreamBuffer>(opts.capacity, recordSizeBytes);
+        {
+            std::lock_guard<std::mutex> lk(streamsMtx_);
+            if (streams_.count(streamId)) return false; // already exists
+            // create stream metadata (if any)
+            auto buf = std::make_unique<StreamBuffer>(opts.capacity, recordSize);
 
-        // Construct the pair in-place: key from streamId, mapped value from (buf, opts, recordSizeBytes)
-        auto res = streams_.emplace(
-            std::piecewise_construct,
-            std::forward_as_tuple(streamId),
-            std::forward_as_tuple(std::move(buf), opts, recordSizeBytes)
-        );
+            // Construct the pair in-place: key from streamId, mapped value from (buf, opts, recordSizeBytes)
+            streams_.emplace(
+                std::piecewise_construct,
+                std::forward_as_tuple(streamId),
+                std::forward_as_tuple(std::move(buf), opts, recordSize)
+            );
+        }
 
-        return res.second;
+        return true;
     }
 
     bool remove_stream(const std::string& streamId) {
@@ -153,52 +160,36 @@ public:
         return ProducerToken(this, streamId);
     }
 
-    // Called by ProducerToken
-    SubmitResult submit_batch_for_stream(const std::string& streamId, std::vector<uint8_t>&& batch) {
-        // Verify stream exists
-        {
-            std::lock_guard<std::mutex> lk(streamsMtx_);
-            if (!streams_.count(streamId)) return SubmitResult::UnknownStream;
+    SubmitResult submit_batch_for_stream(const std::string& streamId, std::vector<uint8_t>&& userPayload) {
+        StreamHolder* holder = get_holder(streamId);
+        if (!holder) return SubmitResult::UnknownStream;
+
+        size_t recordSize = holder->buffer->record_size();
+        constexpr size_t ts_bytes = sizeof(ts_t);
+        size_t userRecordSize = recordSize - ts_bytes;
+
+        if (userPayload.size() != userRecordSize) { // TODO: Allow submission of batches
+            return SubmitResult::InvalidPayloadSize;
         }
 
-        std::lock_guard<std::mutex> qlk(queueMtx_);
-        if (batchQueue_.size() >= queueCapacity_) {
-            // Backpressure hint to producer: queue full
+        // Build record with timestamp prefix
+        std::vector<uint8_t> record;
+        record.resize(recordSize);
+        
+        // Compute and add timestamp
+        ts_t ts = currentTimeNs();
+        std::memcpy(record.data(), &ts, ts_bytes);
+
+        // copy payload after timestamp prefix
+        std::memcpy(record.data() + ts_bytes, userPayload.data(), userRecordSize);
+
+        // move into StreamBuffer
+        size_t appended = holder->buffer->append_batch(std::move(record));
+        if (appended == 0) {
             return SubmitResult::Backpressure;
         }
 
-        batchQueue_.emplace_back(streamId, std::move(batch));
-        cv_.notify_one();
         return SubmitResult::Accepted;
-    }
-
-    // Writer APIs - accept already-serialized record bytes
-    // data must point to recordSizeBytes for append_bytes
-    bool append_bytes(const std::string& streamId, const uint8_t* data, size_t len) {
-        StreamHolder* holder = get_holder(streamId);
-        if (!holder) return false;
-        if (len != holder->recordSizeBytes) return false;
-        bool ok = holder->buffer->append(data, len);
-        if (!ok) return false;
-        if (holder->buffer->size() >= holder->opts.flush_batch_size) {
-            auto batch = holder->buffer->take_oldest_batch(holder->opts.flush_batch_size);
-            enqueue_batch(streamId, std::move(batch));
-        }
-        return true;
-    }
-
-    // Batch: contiguous records (len must be multiple of recordSizeBytes)
-    bool append_batch_bytes(const std::string& streamId, const std::vector<uint8_t>& batch) {
-        StreamHolder* holder = get_holder(streamId);
-        if (!holder) return false;
-        if (batch.empty()) return true;
-        if (batch.size() % holder->recordSizeBytes != 0) return false;
-        size_t appended = holder->buffer->append_batch(batch.data(), batch.size());
-        if (holder->buffer->size() >= holder->opts.flush_batch_size) {
-            auto b = holder->buffer->take_oldest_batch(holder->opts.flush_batch_size);
-            enqueue_batch(streamId, std::move(b));
-        }
-        return appended > 0;
     }
 
     // Reader APIs (for UI / archiver)
@@ -257,10 +248,28 @@ public:
         return streams_.size();
     }
 
-    std::optional<size_t> stream_size(const std::string& streamId) const {
-        StreamHolder* holder = get_holder(streamId);
+    std::optional<size_t> stream_size(const std::string& servicename) const {
+        StreamHolder* holder = get_holder(servicename);
         if (!holder) return std::nullopt;
         return holder->buffer->size();
+    }
+
+    // Manager method — assumes you have a mutex streamsMtx_ protecting buffers_ map,
+    // and buffers_ is something like std::unordered_map<std::string, StreamHolder>.
+    std::optional<StreamBufferHandle> GetBufferHandle(const std::string& servicename) {
+        StreamHolder* holder = get_holder(servicename);
+        if (!holder) return std::nullopt;                        // check unique_ptr non-null
+
+        std::unique_lock<std::mutex> lk(streamsMtx_);
+
+        StreamBuffer* bufptr = holder->buffer.get();             // get raw pointer to the buffer
+        return StreamBufferHandle{ std::move(lk), bufptr };      // return handle that owns the lock
+    }
+
+    std::optional<float> GetBufferHealth(const std::string& servicename) const {
+        StreamHolder* holder = get_holder(servicename);
+        if (!holder) return std::nullopt;
+        return static_cast<float>(holder->buffer->size()) / holder->buffer->capacity_records();
     }
 
 private:
@@ -274,13 +283,6 @@ private:
         StreamHolder(std::unique_ptr<StreamBuffer> buf, StreamOptions o, size_t rs)
             : buffer(std::move(buf)), opts(std::move(o)), recordSizeBytes(rs), nextSeq(0) {
         }
-        // delete copy to be explicit (optional)
-        StreamHolder(const StreamHolder&) = delete;
-        StreamHolder& operator=(const StreamHolder&) = delete;
-        // Allow default move if members permit (std::atomic prevents implicit move),
-        // so we keep move deleted as well to be explicit:
-        StreamHolder(StreamHolder&&) = delete;
-        StreamHolder& operator=(StreamHolder&&) = delete;
     };
 
     struct BatchItem {
@@ -303,107 +305,10 @@ private:
         cv_.notify_one();
     }
 
-    // Timer thread wakes flushers periodically to flush small batches
-    void timer_loop() {
-        while (!stopFlag_.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            std::vector<std::pair<std::string, std::vector<uint8_t>>> toEnqueue;
-            {
-                std::lock_guard<std::mutex> lk(streamsMtx_);
-                for (auto& kv : streams_) {
-                    auto& id = kv.first;
-                    auto& holder = kv.second;
-                    size_t sz = holder.buffer->size();
-                    if (sz > 0 && sz < holder.opts.flush_batch_size && holder.opts.flush_batch_size > 0) {
-                        auto batch = holder.buffer->take_oldest_batch(sz);
-                        if (!batch.empty()) toEnqueue.emplace_back(id, std::move(batch));
-                    }
-                }
-            }
-            for (auto& p : toEnqueue) enqueue_batch(p.first, std::move(p.second));
-            cv_.notify_all();
-        }
-    }
-
-    void flusher_loop() {
-        while (true) {
-            BatchItem item;
-            {
-                std::unique_lock<std::mutex> lk(queueMtx_);
-                cv_.wait(lk, [this] { return stopFlag_.load() || !batchQueue_.empty(); });
-
-                // If stop requested and queue empty, exit loop.
-                if (stopFlag_.load() && batchQueue_.empty()) return;
-
-                if (batchQueue_.empty()) {
-                    // Spurious wake or stopFlag set but items taken by another flusher; continue.
-                    continue;
-                }
-
-                item = std::move(batchQueue_.front());
-                batchQueue_.pop_front();
-            }
-
-            // Process the batch (with retries/backoff)
-            try {
-                flush_front_batch(std::move(item));
-            }
-            catch (const std::exception& ex) {
-                std::cerr << "flusher_loop: unexpected exception: " << ex.what() << "";
-            }
-        }
-    }
-
-    // internal flush helpers
-    void flush_front_batch(BatchItem&& item) {
-        const int maxRetries = 5;
-        const std::chrono::milliseconds baseBackoff(50);
-
-        for (int attempt = 1; attempt <= maxRetries; ++attempt) {
-            bool ok = false;
-            try {
-                ok = backend_->write_batch(item.streamId, item.batch);
-            }
-            catch (const std::exception& ex) {
-                ok = false;
-                std::cerr << "flush_front_batch: exception writing batch for stream " << item.streamId << ": " << ex.what() << " (attempt " << attempt << ")";
-            }
-
-            if (ok) {
-                return;
-            }
-
-            std::cerr << "flush_front_batch: failed to write batch for stream " << item.streamId << " (attempt " << attempt << ")";
-
-            if (attempt < maxRetries) {
-                auto backoff = baseBackoff * (1u << (attempt - 1));
-                std::this_thread::sleep_for(backoff);
-            }
-        }
-
-        // All retries exhausted — decision: drop batch and log error.
-        // Alternative: push to a dead-letter queue or persist locally for later replay.
-        std::cerr << "flush_front_batch: dropping batch for stream " << item.streamId << " after max retries";
-    }
-
-    void drain_queue_on_shutdown() {
-        std::deque<BatchItem> localQueue;
-        {
-            // Move queue contents out under lock to minimize blocking producers (which should be stopped)
-            std::lock_guard<std::mutex> lk(queueMtx_);
-            localQueue = std::move(batchQueue_);
-            batchQueue_.clear();
-        }
-
-        // Process all remaining batches in calling thread, with same helper that uses retries.
-        for (auto& item : localQueue) {
-            try {
-                flush_front_batch(std::move(item));
-            }
-            catch (const std::exception& ex) {
-                std::cerr << "drain_queue_on_shutdown: exception while flushing: " << ex.what() << "";
-            }
-        }
+    static ts_t currentTimeNs() {
+        return static_cast<ts_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count());
     }
 
     std::shared_ptr<StorageBackend> backend_;
@@ -419,6 +324,22 @@ private:
     std::thread timerThread_; // optional timer to trigger small flushes
     std::mutex lifecycleMtx_;
     std::condition_variable cv_;
+
+    // config
+    size_t per_stream_size_limit_ = 10 * 1024 * 1024; // 10 MB
+    std::chrono::milliseconds max_buffer_age_ = std::chrono::minutes(3);
+    std::chrono::milliseconds flusher_interval_ = std::chrono::seconds(1);
+
+    // buffers and sync
+    std::unordered_map<std::string, StreamBuffer> buffers_;
+    std::mutex buffersMtx_;
+    std::atomic<size_t> global_buffered_bytes_{ 0 };
+
+    // flusher
+    std::condition_variable flusherCv_;
+    std::mutex flusherMtx_;
+    std::thread flusherThread_;
+    std::atomic<bool> stopFlusher_{ false };
 
     friend class ProducerToken;
 };
