@@ -24,13 +24,13 @@ inline void NotifyAppInput(void* userdata)
 void IdleMode_HandleFrameThrottling(void* userdata) {
     AppState* state = (AppState*)userdata;
     auto targetFPS = state->isIdle ? idleFPS : activeFPS;
-    uint64_t targetFrameTimeNS = 1000000000 / targetFPS;
+    uint64_t targetFrameTimeNS = static_cast<uint64_t>(1E9 / targetFPS);
 
     auto now = SDL_GetTicksNS();
     auto idleDur = now - state->lastInputTimestamp;
     if (!state->isIdle && idleDur >= idleThresholdNS) {
         state->isIdle = true;
-        SDL_Log("Entering idle mode (no user input for %lld ms)", idleDur / 1000000);
+        SDL_Log("Entering idle mode (no user input for %lld ms)", idleDur / 1E6);
     }
 
     auto elapsedNS = now - state->lastTime;

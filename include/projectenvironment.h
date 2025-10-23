@@ -14,8 +14,8 @@
 #include "project.h"
 #include "storage-manager.h"
 #include "stream-registry-impl.h"
-#include "service.h"
-#include "servicefactory.h"
+#include "source.h"
+#include "source-factory.h"
 #include "schema.h"
 
 // Deserialize Stream from json (throws std::runtime_error on invalid data)
@@ -30,8 +30,8 @@ bool LoadProjectFromFile(const std::string& path, ProjectData& outProject, std::
 class ProjectManager {
 public:
     using ErrorString = std::string;
-    using ServicePtr = std::shared_ptr<IService>;
-    using GlobalEventCallback = std::function<void(const SourceData&, const ServiceEvent&)>;
+    using SourcePtr = std::shared_ptr<ISource>;
+    using GlobalEventCallback = std::function<void(const SourceData&, const SourceEvent&)>;
 
     explicit ProjectManager() = default;
 
@@ -88,8 +88,8 @@ public:
                 return false;
             }
 
-            // Create service for this stream
-            auto svc = CreateServiceByType(desc.name, desc.type, desc.schema, *storage_.get());
+            // Create source for this stream
+            auto svc = CreateSourceByType(desc.name, desc.type, desc.schema, *storage_.get());
             if (!svc) {
                 outError = "no factory for service type: " + desc.type + " (stream: " + desc.name + ")";
                 sources_.clear();
@@ -179,13 +179,13 @@ public:
 
     // Get a shared_ptr to a service (caller may interact with buffer APIs etc).
     // Returns nullptr if not found.
-    ServicePtr GetService(const std::string& servicename) const {
+    SourcePtr GetService(const std::string& servicename) const {
         std::scoped_lock<std::mutex> lk(mtx_);
         auto it = sources_.find(servicename);
         return (it != sources_.end()) ? it->second : nullptr;
     }
 
-    std::unordered_map<std::string, ServicePtr> GetAllServices() const {
+    std::unordered_map<std::string, SourcePtr> GetAllServices() const {
         std::scoped_lock<std::mutex> lk(mtx_);
         return sources_;
     }
@@ -247,8 +247,8 @@ private:
 
     // Attach a per-service callback that forwards to global callbacks.
     // Must be called while holding mtx_
-    void AttachForwardingCallbackUnlocked(const SourceData& desc, ServicePtr svc) {
-        auto forwarder = [this, desc](const ServiceEvent& ev) {
+    void AttachForwardingCallbackUnlocked(const SourceData& desc, SourcePtr svc) {
+        auto forwarder = [this, desc](const SourceEvent& ev) {
             // copy callbacks under lock then invoke outside lock to avoid deadlocks
             std::vector<GlobalEventCallback> cbs;
             std::lock_guard<std::mutex> lk(mtx_);
@@ -259,12 +259,12 @@ private:
             }
             };
         // register callback on the service
-        svc->RegisterCallback([forwarder](const ServiceEvent& ev) { forwarder(ev); });
+        svc->RegisterCallback([forwarder](const SourceEvent& ev) { forwarder(ev); });
     }
 
     mutable std::mutex mtx_;
     ProjectData data_;
-    std::unordered_map<std::string, ServicePtr> sources_; // keyed by stream name
+    std::unordered_map<std::string, SourcePtr> sources_; // keyed by stream name
 
     std::string path_;
     uint32_t hash_ = 0;

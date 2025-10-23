@@ -7,16 +7,16 @@
 #include <thread>
 #include <mutex>
 
-#include "service.h"
+#include "source.h"
 
-class RandomDataService : public ServiceBase {
+class RandomDataSource : public ServiceBase {
 public:
     // Create with a descriptor and a buffer capacity
-    static std::shared_ptr<RandomDataService> Create(const std::string& name, const Schema& schema, StorageManager& storage) {
-        return std::make_shared<RandomDataService>(name, schema, storage);
+    static std::shared_ptr<RandomDataSource> Create(const std::string& name, const Schema& schema, StorageManager& storage) {
+        return std::make_shared<RandomDataSource>(name, schema, storage);
     }
 
-    RandomDataService(const std::string& name, const Schema& schema, StorageManager& storage)
+    RandomDataSource(const std::string& name, const Schema& schema, StorageManager& storage)
         : ServiceBase(name, schema, storage),
         gen_(std::random_device{}()) {
     }
@@ -66,7 +66,7 @@ protected:
 
     void RunOnce() override {
         // Notify listeners
-        PublishEvent({ ServiceEventType::Information, "random buffer produced", {} });
+        PublishEvent({ SourceEventType::Information, "random buffer produced", {} });
         Instance instance(schema_.value());
         for (const auto& f : schema_.value().fields()) {
             switch (f.kind) {
@@ -107,10 +107,4 @@ private:
 
     // Simple RNG
     std::mt19937_64 gen_;
-
-    // Sequence counter
-    std::atomic<uint64_t> seq_{ 0 };
-
-    std::mutex activeMtx_;
-    std::size_t lastHandleId_;
 };

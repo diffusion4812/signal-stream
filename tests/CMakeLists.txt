@@ -1,7 +1,7 @@
 add_subdirectory(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0 googletest-build EXCLUDE_FROM_ALL)
 
 add_executable(project_test
-    ../source/serviceregistration.cpp
+    ../source/sourceregistration.cpp
     ../source/schema.cpp
     ../source/projectenvironment.cpp
     project_test.cpp
