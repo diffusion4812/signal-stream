@@ -66,7 +66,7 @@ protected:
 
     void RunOnce() override {
         // Notify listeners
-        PublishEvent({ EventType::Information, "random buffer produced", {} });
+        PublishEvent({ ServiceEventType::Information, "random buffer produced", {} });
         Instance instance(schema_.value());
         for (const auto& f : schema_.value().fields()) {
             switch (f.kind) {

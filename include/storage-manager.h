@@ -16,6 +16,7 @@
 #include <deque>
 #include <optional>
 
+#include "stream-registry.h"
 #include "storage-buffer.h"
 
 // timestamp alias
@@ -35,13 +36,29 @@ struct NullBackend : public StorageBackend {
 };
 
 // Stream configuration options
-struct StreamOptions {
+struct StreamStorageOptions {
     // capacity expressed in number of bytes for the ring buffer backing this stream
     size_t capacity = 1 * 8 * 1024;
     // flush batch size expressed in number of records
     size_t flush_batch_size = 128;
     // timer interval used by timer_loop (not strictly required if you set 0)
     std::chrono::milliseconds flush_interval{ 1000 };
+};
+
+struct StorageStreamHolder {
+    std::shared_ptr<StreamBuffer> buffer; // shared ownership for consumers
+    StreamOptions opts;
+    size_t recordSizeBytes;
+    StreamMetadata metadata;
+
+    StorageStreamHolder(std::shared_ptr<StreamBuffer> buf, StreamOptions o, size_t rs)
+        : buffer(std::move(buf)), opts(std::move(o)), recordSizeBytes(rs) {
+    }
+
+    StorageStreamHolder(const StorageStreamHolder&) = delete;
+    StorageStreamHolder& operator=(const StorageStreamHolder&) = delete;
+    StorageStreamHolder(StorageStreamHolder&&) = delete;
+    StorageStreamHolder& operator=(StorageStreamHolder&&) = delete;
 };
 
 // Result codes for submit
@@ -68,10 +85,33 @@ private:
     std::string streamId_;
 };
 
-// RAII handle that keeps the streams mutex locked while alive
 struct StreamBufferHandle {
-    std::unique_lock<std::mutex> lock; // holds the streams container lock
-    StreamBuffer* buf;                 // non-owning pointer valid while lock held
+    std::unique_lock<std::mutex> lock;
+    StreamBuffer* buf;
+
+    StreamBufferHandle(std::unique_lock<std::mutex> l, StreamBuffer* b)
+        : lock(std::move(l)), buf(b) {
+    }
+
+    // Move constructor
+    StreamBufferHandle(StreamBufferHandle&& other) noexcept
+        : lock(std::move(other.lock)), buf(other.buf) {
+        other.buf = nullptr;
+    }
+
+    // Move assignment
+    StreamBufferHandle& operator=(StreamBufferHandle&& other) noexcept {
+        if (this != &other) {
+            lock = std::move(other.lock);
+            buf = other.buf;
+            other.buf = nullptr;
+        }
+        return *this;
+    }
+
+    // Delete copy operations
+    StreamBufferHandle(const StreamBufferHandle&) = delete;
+    StreamBufferHandle& operator=(const StreamBufferHandle&) = delete;
 
     StreamBuffer* get() const noexcept { return buf; }
     explicit operator bool() const noexcept { return buf != nullptr; }
@@ -94,7 +134,7 @@ public:
 
     // Lifecycle
     void start() {
-        std::lock_guard<std::mutex> lk(lifecycleMtx_);
+        std::scoped_lock<std::mutex> lk(lifecycleMtx_);
         if (running_) return;
         stopFlag_.store(false);
         running_ = true;
@@ -102,7 +142,7 @@ public:
 
     void stop(bool flush_all = true) {
         {
-            std::lock_guard<std::mutex> lk(lifecycleMtx_);
+            std::scoped_lock<std::mutex> lk(lifecycleMtx_);
             if (!running_) return;
             stopFlag_.store(true);
             cv_.notify_all();
@@ -121,47 +161,65 @@ public:
         running_ = false;
     }
 
-    // Stream lifecycle (ProjectManager calls these)
-    // recordSizeBytes: size of each record for this stream (fixed)
-    bool create_stream(const std::string& streamId, const StreamOptions& opts, size_t userRecordSize) {
+    void handle_registry_event(RegistryEventType type, const std::string& streamId, const StreamMetadata& meta) {
+        if (type == RegistryEventType::Created) {
+            StreamStorageOptions opts;
+            opts.capacity = 1 * 8 * 1024; // Example: 8 KB buffer
+            opts.flush_batch_size = 128;
+            opts.flush_interval = std::chrono::milliseconds(1000);
+
+            size_t userRecordSize = meta.schema.instance_size(); // Get user record size directly from the schema
+            create_stream(streamId, opts, userRecordSize);
+        }
+        else if (type == RegistryEventType::Deleted) {
+            remove_stream(streamId);
+        }
+        else if (type == RegistryEventType::Updated) {
+            // Optional: handle changes to stream options
+            // Could resize buffer, adjust flush settings, etc.
+        }
+        else if (type == RegistryEventType::Renamed) {
+            // Optional: handle rename logic if needed
+        }
+    }
+
+    bool create_stream(const std::string& streamId, const StreamStorageOptions& opts, size_t userRecordSize) {
         constexpr size_t ts_bytes = sizeof(ts_t);
         size_t recordSize = ts_bytes + userRecordSize;
 
-        {
-            std::lock_guard<std::mutex> lk(streamsMtx_);
-            if (streams_.count(streamId)) return false; // already exists
-            // create stream metadata (if any)
-            auto buf = std::make_unique<StreamBuffer>(opts.capacity, recordSize);
-
-            // Construct the pair in-place: key from streamId, mapped value from (buf, opts, recordSizeBytes)
-            streams_.emplace(
-                std::piecewise_construct,
-                std::forward_as_tuple(streamId),
-                std::forward_as_tuple(std::move(buf), opts, recordSize)
-            );
+        std::scoped_lock<std::mutex> lk(streamsMtx_);
+        if (streams_.contains(streamId)) {
+            return true; // already exists: no-op
         }
-
+        auto buf = std::make_unique<StreamBuffer>(opts.capacity, recordSize);
+        streams_.emplace(
+            std::piecewise_construct,
+            std::forward_as_tuple(streamId),
+            std::forward_as_tuple(std::move(buf), opts, recordSize)
+        );
         return true;
     }
 
     bool remove_stream(const std::string& streamId) {
-        force_flush(streamId);
-        std::lock_guard<std::mutex> lk(streamsMtx_);
+        std::scoped_lock<std::mutex> lk(streamsMtx_);
         auto it = streams_.find(streamId);
-        if (it == streams_.end()) return false;
+        if (it == streams_.end()) {
+            return true; // already removed: no-op
+        }
+        force_flush(streamId);
         streams_.erase(it);
         return true;
     }
 
     // Acquire a token for a stream (cheap handle)
     std::optional<ProducerToken> get_producer_token(const std::string& streamId) {
-        std::lock_guard<std::mutex> lk(streamsMtx_);
+        std::scoped_lock<std::mutex> lk(streamsMtx_);
         if (!streams_.count(streamId)) return std::nullopt;
         return ProducerToken(this, streamId);
     }
 
     SubmitResult submit_batch_for_stream(const std::string& streamId, std::vector<uint8_t>&& userPayload) {
-        StreamHolder* holder = get_holder(streamId);
+        StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return SubmitResult::UnknownStream;
 
         size_t recordSize = holder->buffer->record_size();
@@ -195,14 +253,14 @@ public:
     // Reader APIs (for UI / archiver)
     // latest returns contiguous bytes, newest-first (each record is recordSizeBytes)
     std::vector<uint8_t> get_latest_bytes(const std::string& streamId, size_t n) const {
-        StreamHolder* holder = get_holder(streamId);
+        StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return {};
         return holder->buffer->latest(n);
     }
 
     // Query by timestamp requires including timestamp in record header; this API returns raw records matching predicate if supported.
     std::vector<uint8_t> query_range_bytes(const std::string& streamId, ts_t fromTs, ts_t toTs) const {
-        StreamHolder* holder = get_holder(streamId);
+        StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return {};
         // The buffer supports a predicate-based query; caller must ensure record layout
         auto predicate = [fromTs, toTs](const uint8_t* rec) -> bool {
@@ -216,7 +274,7 @@ public:
 
     // Persistence control
     bool force_flush(const std::string& streamId, std::chrono::milliseconds /*timeout*/ = std::chrono::milliseconds(5000)) {
-        StreamHolder* holder = get_holder(streamId);
+        StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return false;
         while (true) {
             auto batch = holder->buffer->take_oldest_batch(holder->opts.flush_batch_size);
@@ -249,38 +307,37 @@ public:
     }
 
     std::optional<size_t> stream_size(const std::string& servicename) const {
-        StreamHolder* holder = get_holder(servicename);
+        StorageStreamHolder* holder = get_holder(servicename);
         if (!holder) return std::nullopt;
         return holder->buffer->size();
     }
 
     // Manager method — assumes you have a mutex streamsMtx_ protecting buffers_ map,
-    // and buffers_ is something like std::unordered_map<std::string, StreamHolder>.
-    std::optional<StreamBufferHandle> GetBufferHandle(const std::string& servicename) {
-        StreamHolder* holder = get_holder(servicename);
-        if (!holder) return std::nullopt;                        // check unique_ptr non-null
-
+    // and buffers_ is something like std::unordered_map<std::string, StorageStreamHolder>.
+    std::optional<StreamBufferHandle> GetBufferHandle(const std::string& streamId) {
         std::unique_lock<std::mutex> lk(streamsMtx_);
-
-        StreamBuffer* bufptr = holder->buffer.get();             // get raw pointer to the buffer
-        return StreamBufferHandle{ std::move(lk), bufptr };      // return handle that owns the lock
+        auto it = streams_.find(streamId);
+        if (it == streams_.end()) {
+            return std::nullopt;
+        }
+        return StreamBufferHandle{ std::move(lk), it->second.buffer.get() };
     }
 
     std::optional<float> GetBufferHealth(const std::string& servicename) const {
-        StreamHolder* holder = get_holder(servicename);
+        StorageStreamHolder* holder = get_holder(servicename);
         if (!holder) return std::nullopt;
         return static_cast<float>(holder->buffer->size()) / holder->buffer->capacity_records();
     }
 
 private:
-    struct StreamHolder {
+    struct StorageStreamHolder {
         std::unique_ptr<StreamBuffer> buffer; // byte-based ring buffer
-        StreamOptions opts;
+        StreamStorageOptions opts;
         size_t recordSizeBytes;
         std::atomic<uint64_t> nextSeq{ 0 }; // per-stream monotonic seq (optional)
 
         // Explicit constructor to allow in-place construction inside unordered_map
-        StreamHolder(std::unique_ptr<StreamBuffer> buf, StreamOptions o, size_t rs)
+        StorageStreamHolder(std::unique_ptr<StreamBuffer> buf, StreamStorageOptions o, size_t rs)
             : buffer(std::move(buf)), opts(std::move(o)), recordSizeBytes(rs), nextSeq(0) {
         }
     };
@@ -290,10 +347,10 @@ private:
         std::vector<uint8_t> batch; // contiguous records
     };
 
-    StreamHolder* get_holder(const std::string& streamId) const {
+    StorageStreamHolder* get_holder(const std::string& streamId) const {
         std::lock_guard<std::mutex> lk(streamsMtx_);
         auto it = streams_.find(streamId);
-        return (it == streams_.end()) ? nullptr : const_cast<StreamHolder*>(&it->second);
+        return (it == streams_.end()) ? nullptr : const_cast<StorageStreamHolder*>(&it->second);
     }
 
     // Enqueue batch for background flush
@@ -317,7 +374,7 @@ private:
     size_t flusherThreads_;
     bool running_ = false;
     mutable std::mutex streamsMtx_;
-    std::unordered_map<std::string, StreamHolder> streams_; // per-stream buffers and options
+    std::unordered_map<std::string, StorageStreamHolder> streams_; // per-stream buffers and options
     std::mutex queueMtx_;
     std::deque<BatchItem> batchQueue_; // batches awaiting flush
     std::vector<std::thread> flushers_; // background flusher threads

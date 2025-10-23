@@ -21,28 +21,55 @@ SchemaRegistry --> BaseService
 Instance --> BaseService : sample storage
 }
 
-rectangle "Storage" #LightYellow {
-  database "Online Storage" {
-    [Online Storage] as OnlineDataStorage
-  }
-  database "Offline Storage" {
-    [Offline Storage] as OfflineDataStorage
-  }
-  database "Project File Storage" {
-    [File Storage] as ProjectFileStorage
-  }
-}
+note bottom of Service
+**Service**
+Runtime producer — process/module that connects to a data source or performs computations.
+Managed by ProjectManager (start/stop lifecycle).
+Can produce multiple streams.
+**Stream**
+Logical data channel from a service.
+Registered in StreamRegistry with metadata (schema, rate, fidelity, etc.).
+Can contain multiple signals (columns, metrics, channels).
+**Signal**
+Atomic data field within a stream — e.g., a single measurement, variable, or channel.
+Examples:
+temperature_stream → signals: temp_sensor1, temp_sensor2
+high_fidelity_stream → signals: x_position, y_position, z_position
+Signals share the same timestamp space within their stream.
+end note
 
-rectangle "Project" as Project #LightSlateGrey {
-  [Project Manager] as ProjectManager
+rectangle "Project Manager" as ProjectManager #LightSlateGrey {
+
+  rectangle "Storage Manager" as StorageManager {
+    database "Offline Storage" {
+      [Offline Storage] as OfflineDataStorage
+    }
+    database "Stream Buffers" {
+      collections "Streams" as ServiceBuffers
+    }
+  }
 
   collections "Services" as services
 
-ProjectManager <-u-> ProjectFileStorage
-ProjectManager <-u-> OfflineDataStorage
-ProjectManager <-u-> OnlineDataStorage
+  [Buffer Handle] as BufferHandle
+
+  StorageManager -> BufferHandle
 }
 
+note top of ProjectManager
+ProjectManager
+|_ Starts/Stops Services
+  |_ Service A ── produces
+    |_ Stream 1 ──► Signals
+    |_ Stream 2 ──► Signals
+  |_ Service B ── produces
+    |_ Stream 3 ──► Signals
+|_ Registers Streams in StreamRegistry
+  |_ StreamRegistry stores stream+signal metadata
+  |_ Emits events to StorageManager
+    |_ StorageManager allocates buffers per stream
+    |_ Buffers contain multiple signals under a schema
+end note
 
 rectangle "User Interface" {
   frame "Windows" as Windows #LightGreen {
@@ -63,7 +90,7 @@ rectangle "User Interface" {
   }
 }
 
-Windows -down(0)-> Project : Open/Save Project
+Windows -left(0)-> ProjectManager : Open/Save Project
 ProjectManager -(0)-> Service : Start/Stop Service
 services -right[dashed]- Service
 

@@ -33,7 +33,7 @@ enum class ServiceStatus {
 };
 
 // Struct for service events.
-enum class EventType : uint8_t {
+enum class ServiceEventType : uint8_t {
     None         = 0,
     Information  = 1,
     Notification = 2,
@@ -43,7 +43,7 @@ enum class EventType : uint8_t {
 };
 
 struct ServiceEvent {
-    EventType type;
+    ServiceEventType type;
     std::string message;
     std::optional<std::string> payload;
 };
@@ -88,18 +88,18 @@ public:
         nextCallbackHandle_(1),
         running_(false),
         schema_(schema),
-        lastEvent_(EventType::None, "") {
+        lastEvent_(ServiceEventType::None, "") {
         RegisterCallback([this](const ServiceEvent& ev) { // Log and store last event
             if (static_cast<uint8_t>(ev.type) > 1) {
                 SDL_Log(ev.message.c_str());
                 lastEvent_ = ev;
             }
         });
-        auto opt = storage.get_producer_token(name);
-        if (!opt) {
+        std::optional<ProducerToken> token = storage.get_producer_token(name);
+        if (!token) {
             throw::std::runtime_error("Unable to obtain producer token: " + name);
         }
-        token_ = *opt;
+        token_ = token.value();
     }
 
     virtual ~ServiceBase() { Stop(); }
@@ -113,17 +113,17 @@ public:
         try {
             if (!OnStart()) {
                 status_.store(ServiceStatus::Error);
-                PublishEvent({ EventType::Critical, "Failed to start service", std::nullopt });
+                PublishEvent({ ServiceEventType::Critical, "Failed to start service", std::nullopt });
                 return;
             }
             running_.store(true);
             worker_ = std::jthread([this] { RunLoop(); });
             status_.store(ServiceStatus::Running);
-            PublishEvent({ EventType::Notification, "Service started successfully", std::nullopt });
+            PublishEvent({ ServiceEventType::Notification, "Service started successfully", std::nullopt });
         }
         catch (const std::exception& e) {
             status_.store(ServiceStatus::Error);
-            PublishEvent({ EventType::Critical, std::string("Exception during start: ") + e.what(), std::nullopt });
+            PublishEvent({ ServiceEventType::Critical, std::string("Exception during start: ") + e.what(), std::nullopt });
         }
     }
 
@@ -139,7 +139,7 @@ public:
         if (worker_.joinable()) worker_.join();
         OnStop();
         status_.store(ServiceStatus::Stopped);
-        PublishEvent({ EventType::Notification, "Service stopped", std::nullopt });
+        PublishEvent({ ServiceEventType::Notification, "Service stopped", std::nullopt });
     }
 
     ServiceStatus Status() const override { return status_.load(); }
@@ -147,15 +147,15 @@ public:
 
     bool SetupSchema(const Schema& schema) {
         if (status_.load() != ServiceStatus::Stopped) {
-            PublishEvent({ EventType::Notification, "Cannot setup schema: Service not stopped", std::nullopt });
+            PublishEvent({ ServiceEventType::Notification, "Cannot setup schema: Service not stopped", std::nullopt });
             return false;
         }
         schema_ = schema;
         if (!schema_->isfinalised()) { // Schema must be finalised to have access to instance data (size etc.)
-            PublishEvent({ EventType::Notification, "Cannot setup schema: Schema not finalised", std::nullopt });
+            PublishEvent({ ServiceEventType::Notification, "Cannot setup schema: Schema not finalised", std::nullopt });
             return false;
         }
-        PublishEvent({ EventType::Notification, "Schema setup completed", std::nullopt });
+        PublishEvent({ ServiceEventType::Notification, "Schema setup completed", std::nullopt });
         return true;
     }
 
@@ -195,7 +195,7 @@ public:
         //bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
         bool result = false;
         if (result && schema_->isfinalised() && outSize != schema_->instance_size()) {
-            PublishEvent({ EventType::Notification, "Sample size does not match schema", std::nullopt });
+            PublishEvent({ ServiceEventType::Notification, "Sample size does not match schema", std::nullopt });
         }
         return result;
     }
@@ -239,7 +239,7 @@ protected:
                 RunOnce();
             }
             catch (const std::exception& e) {
-                PublishEvent({ EventType::Critical, std::string("Exception in RunOnce: ") + e.what(), std::nullopt });
+                PublishEvent({ ServiceEventType::Critical, std::string("Exception in RunOnce: ") + e.what(), std::nullopt });
             }
             std::unique_lock<std::mutex> lk(mtx_);
             cv_.wait_for(lk, std::chrono::milliseconds(200), [this] { return !running_.load(); });
