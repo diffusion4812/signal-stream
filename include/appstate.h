@@ -1,10 +1,11 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include "projectenvironment.h"
+#include "window.h"
 
 class Console;
-struct IWindow;
-class ProjectManager;
+class WindowManager;
 class Schema;
 struct SDL_Thread;
 
@@ -26,8 +27,6 @@ struct AppState {
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     SDL_Thread* ioThread;
 
-    Schema* schema;
     std::vector<std::unique_ptr<ProjectManager>> projects;
-
-    std::vector<std::unique_ptr<IWindow>> windows;
+    std::unique_ptr<WindowManager> wm;
 };

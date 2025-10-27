@@ -1,6 +1,7 @@
 ﻿#pragma once
 
-#include "window.h"
+#include "window-manager.h"
+#include "window-live.h"
 #include "projectenvironment.h"
 #include "imshape.h"
 
@@ -9,7 +10,7 @@ public:
     Window_SignalBrowser(ProjectManager* project) : pm_(project) {
     }
 
-    void OnDraw() {
+    void OnRender(WindowManager& wm) {
         if (ImGui::Begin(pm_->GetName().c_str())) {
             ImVec4 statusColor(0.7f, 0.7f, 0.7f, 1.0f);
             std::string statusText;
@@ -26,10 +27,10 @@ public:
 
                     auto status = svc->Status();
                     switch (status) {
-                        case ServiceStatus::Running:
+                        case SourceStatus::Running:
                             ImGui::ImShape::Circle(IM_COL32(50, 200, 50, 255));
                             break;
-                        case ServiceStatus::Stopped:
+                        case SourceStatus::Stopped:
                             ImGui::ImShape::Square(IM_COL32(200, 200, 200, 255), 2.0f);
                             break;
                         default:
@@ -53,23 +54,23 @@ public:
                         else {
                             auto status = svc->Status();
                             switch (status) {
-                            case ServiceStatus::Starting:
+                            case SourceStatus::Starting:
                                 statusText = "Starting";
                                 statusColor = ImVec4(0.8f, 0.8f, 0.2f, 1.0f);
                                 break;
-                            case ServiceStatus::Running:
+                            case SourceStatus::Running:
                                 statusText = "Running";
                                 statusColor = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);
                                 break;
-                            case ServiceStatus::Stopping:
+                            case SourceStatus::Stopping:
                                 statusText = "Stopping";
                                 statusColor = ImVec4(0.8f, 0.5f, 0.2f, 1.0f);
                                 break;
-                            case ServiceStatus::Stopped:
+                            case SourceStatus::Stopped:
                                 statusText = "Stopped";
                                 statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
                                 break;
-                            case ServiceStatus::Error:
+                            case SourceStatus::Error:
                                 statusText = "Error";
                                 statusColor = ImVec4(0.9f, 0.2f, 0.2f, 1.0f);
                                 break;
@@ -109,11 +110,43 @@ public:
                         ImGui::Separator();
                         ImGui::Text("Schema:");
                         for (const auto& field : source.schema.get_fields()) {
-                            std::string val("");
+                            std::string val;
                             if (validSample) {
                                 val = instance.get_as_string(field.name);
                             }
-                            ImGui::BulletText("%s: %s (%s)", field.name.c_str(), kindToString(field.kind), val.c_str());
+
+                            // Draw bullet
+                            ImGui::Bullet();
+
+                            // Create clickable/selectable text
+                            std::string label = field.name + ": " + kindToString(field.kind) + " (" + val + ")";
+                            ImGui::Selectable(label.c_str(), false);
+
+                            // Double-click detection
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                                Window_Live::Payload payload = {
+                                    *pm_,
+                                    std::string(source.name)
+                                };
+
+                                wm.openWindowByType("window-live", payload);
+                            }
+
+                            // Drag-and-drop source
+                            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                                ImGui::SetDragDropPayload("FIELD_NAME", field.name.c_str(), field.name.size() + 1);
+                                ImGui::Text("%s", field.name.c_str()); // Drag preview
+                                ImGui::EndDragDropSource();
+                            }
+
+                            // Drag-and-drop target (optional)
+                            if (ImGui::BeginDragDropTarget()) {
+                                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("FIELD_NAME")) {
+                                    const char* droppedField = (const char*)payload->Data;
+                                    //handleDroppedField(droppedField);
+                                }
+                                ImGui::EndDragDropTarget();
+                            }
                         }
                         ImGui::TreePop();
                     }

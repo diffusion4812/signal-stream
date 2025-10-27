@@ -2,21 +2,25 @@
 
 #include <implot.h>
 
-#include "window.h"
+#include "window-manager.h"
 #include "projectenvironment.h"
 #include "storage-manager.h"
 #include "storage-buffer.h"
 
 class Window_Live : public WindowCRTP<Window_Live> {
 public:
-    explicit Window_Live(ProjectManager* project) : pm_(project) {
+    struct Payload {
+        ProjectManager& pm;
+        std::string source;
+    };
+
+    explicit Window_Live(const Payload& payload) : pm_(payload.pm) {
+        handle_ = std::make_unique<StreamBufferHandle>(pm_.GetBufferHandle(payload.source));
     }
 
-    void OnDraw() {
+    void OnRender(WindowManager& wm) {
         ImGui::Begin("Live Window");
-        auto svc = pm_->GetService("my random data");
-        StreamBufferHandle buffer = pm_->GetBufferHandle("my random data");
-        std::vector<std::pair<ts_t, std::vector<uint8_t>>> records = buffer.buf->latest_parsed(1000);
+        std::vector<std::pair<ts_t, std::vector<uint8_t>>> records = handle_->buf->latest_parsed(10000);
         size_t N = records.size();
         std::vector<double> xs;
         std::vector<double> ys;
@@ -35,8 +39,8 @@ public:
 
             // Y: decode payload -> here we assume 8-byte little-endian double
             const auto& payload = rec.second;
-            std::int32_t value = 0.0;
-            std::memcpy(&value, payload.data(), sizeof(std::int32_t));
+            float value = 0.0;
+            std::memcpy(&value, payload.data(), sizeof(float));
             ys.push_back(static_cast<double>(value));
         }
 
@@ -54,5 +58,6 @@ private:
         return ImPlotPoint(0, 0);
     }
 
-    ProjectManager* pm_;
+    std::unique_ptr<StreamBufferHandle> handle_;
+    ProjectManager& pm_;
 };

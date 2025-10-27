@@ -1,19 +1,22 @@
 #pragma once
 
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>
+
+class WindowManager;
 
 struct IWindow {
     virtual ~IWindow() = default;
-    virtual void Draw() = 0;
+    virtual void Render(WindowManager& wm) = 0;
     virtual bool ShouldRemove() = 0;
 };
 
 template<typename Derived>
 class WindowCRTP : public IWindow {
 public:
-    void Draw() {
+    void Render(WindowManager& wm) {
         setFullscreen();
-        static_cast<Derived*>(this)->OnDraw();
+        static_cast<Derived*>(this)->OnRender(wm);
     }
 
     void SetRemove() {
@@ -35,14 +38,7 @@ private:
         }
     }
 
+protected:
     bool fullscreen_ = false;
     bool shouldremove_ = false;
 };
-
-//#include "window-analysis.h"
-#include "window-console.h"
-#include "window-signalbrowser.h"
-#include "window-filebrowser.h"
-#include "window-fps.h"
-#include "window-live.h"
-#include "window-openproject.h"

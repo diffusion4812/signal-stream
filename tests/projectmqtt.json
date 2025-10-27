@@ -1,0 +1,12 @@
+{
+  "name": "Test Project 1",
+  "streams": [
+    {
+      "name": "my MQTT data",
+      "type": "MQTT",
+      "signals": [
+        { "name": "signal1", "type": "float", "unit": "Celsius" }
+      ]
+    }
+  ]
+}

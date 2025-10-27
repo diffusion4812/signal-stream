@@ -11,6 +11,7 @@ include_directories(C:/Users/LOAR02/Source/Libraries/imgui-docking/backends)
 include_directories(C:/Users/LOAR02/Source/Libraries/imgui-filebrowser)
 include_directories(C:/Users/LOAR02/Source/Libraries/implot-master)
 include_directories(C:/Users/LOAR02/Source/Libraries/tinycc/win32/libtcc)
+include_directories(C:/Users/LOAR02/Source/Libraries/async_mqtt/include)
 include_directories(C:/Users/LOAR02/Source/Libraries)
 include_directories($ENV{BOOST_ROOT})
 
@@ -24,6 +25,7 @@ add_executable(signal-stream WIN32)
 set_property(TARGET signal-stream PROPERTY CXX_STANDARD 20)
 set_property(TARGET signal-stream PROPERTY OUTPUT_NAME "Signal Stream")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
 
 target_link_libraries(signal-stream SDL3)
 

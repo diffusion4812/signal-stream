@@ -17,6 +17,7 @@
 #include <array>
 #include <iostream>  // For logging; replace with your library
 #include <SDL3/SDL_log.h>
+#include <boost/asio.hpp>
 
 #include "storage-manager.h"
 #include "project.h"
@@ -24,7 +25,7 @@
 #include "instance.h" // Include the instance class for schema integration
 
 // Simple status enum for services.
-enum class ServiceStatus {
+enum class SourceStatus {
     Stopped,
     Starting,
     Running,
@@ -64,7 +65,7 @@ public:
 
     virtual void Start() = 0;
     virtual void Stop() = 0;
-    virtual ServiceStatus Status() const = 0;
+    virtual SourceStatus Status() const = 0;
     virtual const SourceData& Source() const = 0;
 
     virtual bool SetupSchema(const Schema& schema) = 0;
@@ -80,11 +81,11 @@ public:
 };
 
 // Concrete base class with schema integration.
-class ServiceBase : public ISource {
+class SourceBase : public ISource {
 public:
-    explicit ServiceBase(const std::string& name, const Schema& schema, StorageManager& storage)
+    explicit SourceBase(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc)
         :
-        status_(ServiceStatus::Stopped),
+        status_(SourceStatus::Stopped),
         nextCallbackHandle_(1),
         running_(false),
         schema_(schema),
@@ -102,35 +103,35 @@ public:
         token_ = token.value();
     }
 
-    virtual ~ServiceBase() { Stop(); }
+    virtual ~SourceBase() { Stop(); }
 
     void Start() override {
-        ServiceStatus expected = ServiceStatus::Stopped;
-        if (!status_.compare_exchange_strong(expected, ServiceStatus::Starting)) {
+        SourceStatus expected = SourceStatus::Stopped;
+        if (!status_.compare_exchange_strong(expected, SourceStatus::Starting)) {
             std::cout << "[LOG] Service already starting or running." << std::endl;
             return;
         }
         try {
             if (!OnStart()) {
-                status_.store(ServiceStatus::Error);
+                status_.store(SourceStatus::Error);
                 PublishEvent({ SourceEventType::Critical, "Failed to start service", std::nullopt });
                 return;
             }
             running_.store(true);
             worker_ = std::jthread([this] { RunLoop(); });
-            status_.store(ServiceStatus::Running);
+            status_.store(SourceStatus::Running);
             PublishEvent({ SourceEventType::Notification, "Service started successfully", std::nullopt });
         }
         catch (const std::exception& e) {
-            status_.store(ServiceStatus::Error);
+            status_.store(SourceStatus::Error);
             PublishEvent({ SourceEventType::Critical, std::string("Exception during start: ") + e.what(), std::nullopt });
         }
     }
 
     void Stop() override {
         auto currentStatus = status_.load();
-        if (currentStatus == ServiceStatus::Stopped || currentStatus == ServiceStatus::Stopping) return;
-        status_.store(ServiceStatus::Stopping);
+        if (currentStatus == SourceStatus::Stopped || currentStatus == SourceStatus::Stopping) return;
+        status_.store(SourceStatus::Stopping);
         running_.store(false);
         {
             std::lock_guard<std::mutex> lk(mtx_);
@@ -138,15 +139,15 @@ public:
         }
         if (worker_.joinable()) worker_.join();
         OnStop();
-        status_.store(ServiceStatus::Stopped);
+        status_.store(SourceStatus::Stopped);
         PublishEvent({ SourceEventType::Notification, "Service stopped", std::nullopt });
     }
 
-    ServiceStatus Status() const override { return status_.load(); }
+    SourceStatus Status() const override { return status_.load(); }
     const SourceData& Source() const override { return source_; }
 
     bool SetupSchema(const Schema& schema) {
-        if (status_.load() != ServiceStatus::Stopped) {
+        if (status_.load() != SourceStatus::Stopped) {
             PublishEvent({ SourceEventType::Notification, "Cannot setup schema: Service not stopped", std::nullopt });
             return false;
         }
@@ -268,7 +269,7 @@ private:
     std::jthread worker_;
     std::mutex mtx_;
     std::condition_variable cv_;
-    std::atomic<ServiceStatus> status_;
+    std::atomic<SourceStatus> status_;
 
 protected:
     ProducerToken token_;

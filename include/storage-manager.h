@@ -86,23 +86,19 @@ private:
 };
 
 struct StreamBufferHandle {
-    std::unique_lock<std::mutex> lock;
     StreamBuffer* buf;
 
-    StreamBufferHandle(std::unique_lock<std::mutex> l, StreamBuffer* b)
-        : lock(std::move(l)), buf(b) {
-    }
+    explicit StreamBufferHandle(StreamBuffer* b) noexcept : buf(b) {}
 
     // Move constructor
     StreamBufferHandle(StreamBufferHandle&& other) noexcept
-        : lock(std::move(other.lock)), buf(other.buf) {
+        : buf(other.buf) {
         other.buf = nullptr;
     }
 
     // Move assignment
     StreamBufferHandle& operator=(StreamBufferHandle&& other) noexcept {
         if (this != &other) {
-            lock = std::move(other.lock);
             buf = other.buf;
             other.buf = nullptr;
         }
@@ -164,7 +160,7 @@ public:
     void handle_registry_event(RegistryEventType type, const std::string& streamId, const StreamMetadata& meta) {
         if (type == RegistryEventType::Created) {
             StreamStorageOptions opts;
-            opts.capacity = 1 * 8 * 1024; // Example: 8 KB buffer
+            opts.capacity = 8 * 1024 * 1024; // Example: 8 KB buffer
             opts.flush_batch_size = 128;
             opts.flush_interval = std::chrono::milliseconds(1000);
 
@@ -302,7 +298,7 @@ public:
 
     // Observability
     size_t stream_count() const {
-        std::lock_guard<std::mutex> lk(streamsMtx_);
+        std::scoped_lock lk(streamsMtx_);
         return streams_.size();
     }
 
@@ -312,15 +308,14 @@ public:
         return holder->buffer->size();
     }
 
-    // Manager method — assumes you have a mutex streamsMtx_ protecting buffers_ map,
-    // and buffers_ is something like std::unordered_map<std::string, StorageStreamHolder>.
     std::optional<StreamBufferHandle> GetBufferHandle(const std::string& streamId) {
-        std::unique_lock<std::mutex> lk(streamsMtx_);
+        std::unique_lock lk(streamsMtx_);
         auto it = streams_.find(streamId);
         if (it == streams_.end()) {
             return std::nullopt;
         }
-        return StreamBufferHandle{ std::move(lk), it->second.buffer.get() };
+        // Lock is released here — caller must lock if needed
+        return StreamBufferHandle{ it->second.buffer.get() };
     }
 
     std::optional<float> GetBufferHealth(const std::string& servicename) const {
@@ -348,7 +343,7 @@ private:
     };
 
     StorageStreamHolder* get_holder(const std::string& streamId) const {
-        std::lock_guard<std::mutex> lk(streamsMtx_);
+        std::scoped_lock<std::mutex> lk(streamsMtx_);
         auto it = streams_.find(streamId);
         return (it == streams_.end()) ? nullptr : const_cast<StorageStreamHolder*>(&it->second);
     }
@@ -356,7 +351,7 @@ private:
     // Enqueue batch for background flush
     void enqueue_batch(const std::string& streamId, std::vector<uint8_t>&& batch) {
         {
-            std::lock_guard<std::mutex> lk(queueMtx_);
+            std::scoped_lock<std::mutex> lk(queueMtx_);
             batchQueue_.emplace_back(BatchItem{ streamId, std::move(batch) });
         }
         cv_.notify_one();

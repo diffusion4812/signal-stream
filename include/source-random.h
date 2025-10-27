@@ -9,15 +9,15 @@
 
 #include "source.h"
 
-class RandomDataSource : public ServiceBase {
+class RandomSource : public SourceBase {
 public:
     // Create with a descriptor and a buffer capacity
-    static std::shared_ptr<RandomDataSource> Create(const std::string& name, const Schema& schema, StorageManager& storage) {
-        return std::make_shared<RandomDataSource>(name, schema, storage);
+    static std::shared_ptr<RandomSource> Create(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
+        return std::make_shared<RandomSource>(name, schema, storage, ioc);
     }
 
-    RandomDataSource(const std::string& name, const Schema& schema, StorageManager& storage)
-        : ServiceBase(name, schema, storage),
+    RandomSource(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc)
+        : SourceBase(name, schema, storage, ioc),
         gen_(std::random_device{}()) {
     }
 

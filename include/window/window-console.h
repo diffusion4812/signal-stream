@@ -117,7 +117,7 @@ public:
         }
     }
 
-    void OnDraw() {
+    void OnRender(WindowManager& wm) {
         ImGui::Begin("Console", mConsoleIsOpen);
         if (ImGui::Button("Clear Console")) {
             mConsole->removeAll();

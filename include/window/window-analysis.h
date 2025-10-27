@@ -1,6 +1,7 @@
 #pragma once
 
-#include "window.h"
+#include "window-manager.h"
+#include "csv.h"
 
 class Window_Analysis : public WindowCRTP<Window_Analysis> {
 public:
@@ -8,7 +9,7 @@ public:
         CSVFile_ = csvFile;
     }
 
-    void OnDraw() {
+    void OnRender(WindowManager& wm) {
         // --- ImPlot CSV Plotting ---
         if (CSVFile_->fileIsRead && CSVFile_->parsedCsv->GetColumnCount() > 1) {
             ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);

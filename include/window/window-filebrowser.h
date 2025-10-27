@@ -1,6 +1,6 @@
 #pragma once
 
-#include "window.h"
+#include "window-manager.h"
 #define USE_WIN32_GETLOGICALDRIVES
 #include "imfilebrowser.h"
 #include "appstate.h"
@@ -9,7 +9,7 @@
 
 class Window_FileBrowser : public WindowCRTP<Window_FileBrowser> {
 public:
-    Window_FileBrowser(AppState * state)
+    Window_FileBrowser(AppState* state)
         : state_(state), dialog_(ImGuiFileBrowserFlags_CreateNewDir) {
         dialog_.SetTitle("Open Project");
         dialog_.SetTypeFilters({ ".json" });
@@ -23,7 +23,7 @@ public:
         dialog_.Open();
     }
 
-    void OnDraw() {
+    void OnRender(WindowManager& wm) {
         dialog_.Display();
         if (dialog_.HasSelected()) {
             auto selectedPath = dialog_.GetSelected().string();
@@ -40,8 +40,9 @@ public:
                     return; // project already opened
                 }
             }
-            state_->projects.push_back(std::make_unique<ProjectManager>(selectedPath, autostart_));
-            state_->windows.push_back(std::make_unique<Window_SignalBrowser>(state_->projects.back().get()));
+            state_->projects.push_back(std::make_unique<ProjectManager>(selectedPath, autostart_, *(state_->io_context)));
+            wm.openWindowByType("window-signalbrowser");
+            //state_->windows.push_back(std::make_unique<Window_SignalBrowser>(state_->projects.back().get()));
             dialog_.Close();
         }
         if (!dialog_.IsOpened()) SetRemove();

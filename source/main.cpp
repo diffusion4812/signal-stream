@@ -23,14 +23,14 @@
 #include <SDL3/SDL_thread.h>
 #include <SDL3/SDL_mutex.h>
 
+#include "window-manager.h"
 #include "rapidcsv.h"
-
 #include "appstate.h"
-#include "window.h"
 #include "console.h"
 #include "idle.h"
 #include "csv.h"
 #include "tcpip.h"
+
  
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
@@ -51,6 +51,7 @@ static void SDLCALL appSDL_LogOutputFunction(void* userdata, int category, SDL_L
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 {
     AppState* state = new AppState();
+    state->wm = std::make_unique<WindowManager>(*state);
     if (!state) {
         SDL_Log("Failed to allocate memory for app state: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -133,7 +134,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     ImGui_ImplSDLGPU3_Init(&init_info);
 
     state->fps = 0.0;
-    state->windows.push_back(std::make_unique<Window_FPS>(&state->fps));
 
     state->io_context = new boost::asio::io_context();
     state->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(state->io_context->get_executor());
@@ -190,10 +190,9 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open Project")) {
-                state->windows.push_back(std::make_unique<Window_FileBrowser>(state));
+                state->wm->openWindowByType("window-filebrowser");
             }
             if (ImGui::MenuItem("Open asdasdroject")) {
-                state->windows.push_back(std::make_unique<Window_Live>(state->projects[0].get()));
             }
             if (ImGui::MenuItem("Exit")) {
                 return SDL_APP_SUCCESS;
@@ -202,7 +201,6 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
         }
         if (ImGui::BeginMenu("Tools")) {
             if (ImGui::MenuItem("Open Console")) {
-                state->windows.push_back(std::make_unique<Window_Console>(state->console, &state->consoleIsOpen));
             }
             if (ImGui::MenuItem("Open Metrics Window")) {
                 state->show_metrics_window = true;
@@ -215,14 +213,7 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
         ImGui::EndMainMenuBar();
     }
 
-    for (auto& window : state->windows) {
-        window->Draw();
-    }
-
-    state->windows.erase(
-        std::remove_if(state->windows.begin(), state->windows.end(),
-            [](const std::unique_ptr<IWindow>& w) { return w && w->ShouldRemove(); }),
-        state->windows.end());
+    state->wm->renderAll();
 
     if (state->show_metrics_window) {
         ImGui::ShowMetricsWindow(&state->show_metrics_window);

@@ -35,10 +35,11 @@ public:
 
     explicit ProjectManager() = default;
 
-    ProjectManager(const std::string& path, bool autostart) :
+    ProjectManager(const std::string& path, bool autostart, boost::asio::io_context& ioc) :
             path_(path),
             registry_(make_stream_registry()),
-            storage_(std::make_unique<StorageManager>()) {
+            storage_(std::make_unique<StorageManager>()),
+            ioc_(ioc) {
 
         storageSubscriptionToken_ = registry_->subscribe_with_token(
             [this](RegistryEventType type, const std::string& streamId, const StreamMetadata& meta) {
@@ -89,7 +90,7 @@ public:
             }
 
             // Create source for this stream
-            auto svc = CreateSourceByType(desc.name, desc.type, desc.schema, *storage_.get());
+            auto svc = CreateSourceByType(desc.name, desc.type, desc.schema, *storage_.get(), ioc_);
             if (!svc) {
                 outError = "no factory for service type: " + desc.type + " (stream: " + desc.name + ")";
                 sources_.clear();
@@ -125,7 +126,7 @@ public:
         std::scoped_lock<std::mutex> lk(mtx_);
         for (auto& kv : sources_) {
             try {
-                if (kv.second->Status() == ServiceStatus::Stopped || kv.second->Status() == ServiceStatus::Error) {
+                if (kv.second->Status() == SourceStatus::Stopped || kv.second->Status() == SourceStatus::Error) {
                     kv.second->Start();
                     // Wait briefly for status to update, if needed
                     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -134,7 +135,7 @@ public:
             catch (const std::exception& ex) {
                 throw std::runtime_error("Failed to start service " + kv.first + ": " + ex.what());
             }
-            if (kv.second->Status() != ServiceStatus::Running) {
+            if (kv.second->Status() != SourceStatus::Running) {
                 throw std::runtime_error("Failed to start service " + kv.first);
             }
         }
@@ -197,7 +198,7 @@ public:
     }
 
     StreamBufferHandle GetBufferHandle(const std::string& streamId) {
-        std::scoped_lock<std::mutex> lk(mtx_);
+        std::scoped_lock lk(mtx_);
         auto handleOpt = storage_->GetBufferHandle(streamId);
         if (!handleOpt) {
             throw std::runtime_error("Stream not found: " + streamId);
@@ -261,6 +262,8 @@ private:
         // register callback on the service
         svc->RegisterCallback([forwarder](const SourceEvent& ev) { forwarder(ev); });
     }
+
+    boost::asio::io_context& ioc_;
 
     mutable std::mutex mtx_;
     ProjectData data_;
