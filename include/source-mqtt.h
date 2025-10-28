@@ -19,13 +19,17 @@ using mqtt_client_t = async_mqtt::client<async_mqtt::protocol_version::v5, async
 
 class MQTTSource : public SourceBase {
 public:
+    struct Metadata : IMetadata {
+        std::string topic;
+    };
+
     // Create with a descriptor and a buffer capacity
-    static std::shared_ptr<MQTTSource> Create(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
-        return std::make_shared<MQTTSource>(name, schema, storage, ioc);
+    static std::shared_ptr<MQTTSource> Create(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) {
+        return std::make_shared<MQTTSource>(name, schema, metadata, storage, ioc);
     }
 
-    MQTTSource(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc)
-        : SourceBase(name, schema, storage, ioc), ioc_(ioc), cli_(ioc_.get_executor()) {
+    MQTTSource(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)
+        : SourceBase(name, schema, storage, ioc), ioc_(ioc), cli_(ioc_.get_executor()), topic_(metadata.topic) {
     }
 
     // Non-blocking attempt to acquire one sample buffer.
@@ -37,7 +41,7 @@ public:
     // and behave identical to TryAcquireSample (always returns immediately).
     bool DoAcquireSample(std::chrono::milliseconds /*timeout*/,
         SampleHandle& outHandle,
-        const uint8_t*& outData,
+        const std::byte*& outData,
         size_t& outSize,
         Sample& outMeta) override
     {
@@ -59,8 +63,6 @@ protected:
     }
 
     void RunOnce() override {
-        // Notify listeners
-        PublishEvent({ SourceEventType::Information, "random buffer produced", {} });
     }
 
 private:
@@ -124,9 +126,7 @@ private:
         // subscribe
         // MQTT send subscribe and wait suback
         std::vector<async_mqtt::topic_subopts> sub_entry{
-            {"topic1", async_mqtt::qos::at_most_once},
-            {"topic2", async_mqtt::qos::at_least_once},
-            {"topic3", async_mqtt::qos::exactly_once},
+            {topic_, async_mqtt::qos::at_most_once},
         };
         cli_.async_subscribe(
             *cli_.acquire_unique_packet_id(), // sync version only works thread safe context
@@ -172,16 +172,13 @@ private:
             SDL_Log(std::to_string(pv_opt->size()).c_str());
             async_mqtt::v5::publish_packet packet(pv_opt.value().get<async_mqtt::v5::publish_packet>());
             std::string payload = packet.payload();
-            float height;
-            std::memcpy(&height, payload.data(), sizeof(float));
-            SDL_Log(std::format("{}", height).c_str());
-
             Instance instance(schema_.value());
-            instance.set<float>("signal1", height);
+            instance.set_data(payload.data());
+
             SubmitResult r = token_.try_submit(std::move(
-                std::vector<uint8_t>(reinterpret_cast<uint8_t*>(
+                std::vector<std::byte>(reinterpret_cast<std::byte*>(
                     instance.get_data()),
-                    reinterpret_cast<uint8_t*>(instance.get_data()) + schema_.value().instance_size())
+                    reinterpret_cast<std::byte*>(instance.get_data()) + schema_.value().instance_size())
             ));
         }
         // next receive
@@ -195,6 +192,7 @@ private:
     }
 
     boost::asio::io_context& ioc_;
+    std::string topic_;
     mqtt_client_t cli_;
     std::string host_;
     std::string port_;

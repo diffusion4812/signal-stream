@@ -74,7 +74,7 @@ public:
     virtual void UnregisterCallback(std::size_t handle) = 0;
 
     virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) = 0;
-    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) = 0;
+    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const std::byte*& outData, size_t& outSize, Sample& outMeta) = 0;
     virtual void ReleaseSample(SampleHandle handle) = 0;
 
     virtual SourceEvent* GetLastEvent() = 0;
@@ -91,7 +91,7 @@ public:
         schema_(schema),
         lastEvent_(SourceEventType::None, "") {
         RegisterCallback([this](const SourceEvent& ev) { // Log and store last event
-            if (static_cast<uint8_t>(ev.type) > 1) {
+            if (static_cast<std::uint8_t>(ev.type) > 1) {
                 SDL_Log(ev.message.c_str());
                 lastEvent_ = ev;
             }
@@ -192,7 +192,7 @@ public:
         return result;
     }
 
-    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const uint8_t*& outData, size_t& outSize, Sample& outMeta) override {
+    virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const std::byte*& outData, size_t& outSize, Sample& outMeta) override {
         //bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
         bool result = false;
         if (result && schema_->isfinalised() && outSize != schema_->instance_size()) {
@@ -252,7 +252,7 @@ protected:
     // Pure virtual
     virtual bool DoOnStart() = 0;
     virtual bool DoTryAcquireSample(SampleHandle&, Instance&) = 0;
-    virtual bool DoAcquireSample(std::chrono::milliseconds, SampleHandle&, const uint8_t*&, size_t&, Sample&) = 0;
+    virtual bool DoAcquireSample(std::chrono::milliseconds, SampleHandle&, const std::byte*&, size_t&, Sample&) = 0;
     virtual void DoReleaseSample(SampleHandle) = 0;
 
     SourceData source_;

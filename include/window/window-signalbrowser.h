@@ -19,8 +19,10 @@ public:
                 for (const auto& source : pm_->GetProjectData().sources) {
                     auto svc = pm_->GetService(source.name);
                     Instance instance(source.schema);
-                    SampleHandle sampleHandle;
-                    bool validSample = svc->TryAcquireSample(sampleHandle, instance);
+
+                    StreamBufferHandle handle = pm_->GetBufferHandle(source.name);
+                    std::vector<std::byte> data = handle.get()->latest_parsed(1)[0].second; // Get the latest record (empty if no data available)
+                    instance.set_data(data.data());
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
@@ -110,43 +112,40 @@ public:
                         ImGui::Separator();
                         ImGui::Text("Schema:");
                         for (const auto& field : source.schema.get_fields()) {
-                            std::string val;
-                            if (validSample) {
-                                val = instance.get_as_string(field.name);
-                            }
+                            std::string val = instance.get_as_string(field.name);
 
-                            // Draw bullet
-                            ImGui::Bullet();
+                            ImGui::PushID(source.name.c_str());
+                            ImGui::PushID(field.name.c_str());
 
-                            // Create clickable/selectable text
-                            std::string label = field.name + ": " + kindToString(field.kind) + " (" + val + ")";
-                            ImGui::Selectable(label.c_str(), false);
+                            // Render selectable with a constant internal label
+                            ImGui::Selectable("##signal_item", false);
 
-                            // Double-click detection
+                            // Handle double clicks
                             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                                Window_Live::Payload payload = {
+                                wm.openWindowByType("window-live", std::any(Window_Live::Payload{
                                     *pm_,
-                                    std::string(source.name)
-                                };
-
-                                wm.openWindowByType("window-live", payload);
+                                    std::string(source.name),
+                                    source.schema,
+                                    field.name,
+                                    field.kind
+                                    }));
                             }
 
-                            // Drag-and-drop source
+                            // Drag-drop source
                             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                                ImGui::SetDragDropPayload("FIELD_NAME", field.name.c_str(), field.name.size() + 1);
-                                ImGui::Text("%s", field.name.c_str()); // Drag preview
+                                Window_Live::DragAndDropPayload dd{ source.name, field.name, field.kind };
+                                ImGui::SetDragDropPayload("SIGNAL", &dd, sizeof(dd));
+                                ImGui::Text("%s", field.name.c_str());
                                 ImGui::EndDragDropSource();
                             }
 
-                            // Drag-and-drop target (optional)
-                            if (ImGui::BeginDragDropTarget()) {
-                                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("FIELD_NAME")) {
-                                    const char* droppedField = (const char*)payload->Data;
-                                    //handleDroppedField(droppedField);
-                                }
-                                ImGui::EndDragDropTarget();
-                            }
+                            // Draw the live-updating text separately so it doesn't affect the ID
+                            ImGui::SameLine();
+                            ImGui::Text("%s: %s (%s)", field.name.c_str(), kindToString(field.kind), val.c_str());
+
+                            ImGui::PopID(); // field
+                            ImGui::PopID(); // source
+
                         }
                         ImGui::TreePop();
                     }

@@ -1,11 +1,14 @@
 {
   "name": "Test Project 1",
-  "streams": [
+  "sources": [
     {
-      "name": "my MQTT data",
+      "name": "my MQTT data source",
       "type": "MQTT",
+      "metadata": {
+        "topic": "topic123"
+      },
       "signals": [
-        { "name": "signal1", "type": "float", "unit": "Celsius" }
+        { "name": "height", "type": "int32", "unit": "m" }
       ]
     }
   ]

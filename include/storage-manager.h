@@ -25,12 +25,12 @@ using ts_t = std::int64_t;
 // Abstract persistence backend
 struct StorageBackend {
     virtual ~StorageBackend() = default;
-    virtual bool write_batch(const std::string& streamId, const std::vector<uint8_t>& batch) = 0;
+    virtual bool write_batch(const std::string& streamId, const std::vector<std::byte>& batch) = 0;
 };
 
 // Null backend (no-op)
 struct NullBackend : public StorageBackend {
-    bool write_batch(const std::string& streamId, const std::vector<uint8_t>& batch) {
+    bool write_batch(const std::string& streamId, const std::vector<std::byte>& batch) {
         return true;
     }
 };
@@ -76,7 +76,7 @@ public:
     ProducerToken(StorageManager* mgr, std::string id) : mgr_(mgr), streamId_(std::move(id)) {}
 
     // Non-blocking submit: attempts to enqueue the batch for async persistence.
-    SubmitResult try_submit(std::vector<uint8_t>&& batch) const;
+    SubmitResult try_submit(std::vector<std::byte> && batch) const;
 
     const std::string& stream_id() const { return streamId_; }
 
@@ -214,7 +214,7 @@ public:
         return ProducerToken(this, streamId);
     }
 
-    SubmitResult submit_batch_for_stream(const std::string& streamId, std::vector<uint8_t>&& userPayload) {
+    SubmitResult submit_batch_for_stream(const std::string& streamId, std::vector<std::byte>&& userPayload) {
         StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return SubmitResult::UnknownStream;
 
@@ -227,7 +227,7 @@ public:
         }
 
         // Build record with timestamp prefix
-        std::vector<uint8_t> record;
+        std::vector<std::byte> record;
         record.resize(recordSize);
         
         // Compute and add timestamp
@@ -248,18 +248,18 @@ public:
 
     // Reader APIs (for UI / archiver)
     // latest returns contiguous bytes, newest-first (each record is recordSizeBytes)
-    std::vector<uint8_t> get_latest_bytes(const std::string& streamId, size_t n) const {
+    std::vector<std::byte> get_latest_bytes(const std::string& streamId, size_t n) const {
         StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return {};
         return holder->buffer->latest(n);
     }
 
     // Query by timestamp requires including timestamp in record header; this API returns raw records matching predicate if supported.
-    std::vector<uint8_t> query_range_bytes(const std::string& streamId, ts_t fromTs, ts_t toTs) const {
+    std::vector<std::byte> query_range_bytes(const std::string& streamId, ts_t fromTs, ts_t toTs) const {
         StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return {};
         // The buffer supports a predicate-based query; caller must ensure record layout
-        auto predicate = [fromTs, toTs](const uint8_t* rec) -> bool {
+        auto predicate = [fromTs, toTs](const std::byte* rec) -> bool {
             // Placeholder: real predicate depends on record format.
             // For safety, return true (client should call query_if with a custom predicate if needed).
             (void)rec;
@@ -339,7 +339,7 @@ private:
 
     struct BatchItem {
         std::string streamId;
-        std::vector<uint8_t> batch; // contiguous records
+        std::vector<std::byte> batch; // contiguous records
     };
 
     StorageStreamHolder* get_holder(const std::string& streamId) const {
@@ -349,7 +349,7 @@ private:
     }
 
     // Enqueue batch for background flush
-    void enqueue_batch(const std::string& streamId, std::vector<uint8_t>&& batch) {
+    void enqueue_batch(const std::string& streamId, std::vector<std::byte>&& batch) {
         {
             std::scoped_lock<std::mutex> lk(queueMtx_);
             batchQueue_.emplace_back(BatchItem{ streamId, std::move(batch) });
@@ -360,7 +360,7 @@ private:
     static ts_t currentTimeNs() {
         return static_cast<ts_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count());
+                std::chrono::system_clock::now().time_since_epoch()).count());
     }
 
     std::shared_ptr<StorageBackend> backend_;

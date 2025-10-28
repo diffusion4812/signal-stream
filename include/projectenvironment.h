@@ -19,7 +19,7 @@
 #include "schema.h"
 
 // Deserialize Stream from json (throws std::runtime_error on invalid data)
-inline SourceData parseStream(const json& j);
+inline SourceData parseSource(const json& j);
 
 // Deserialize Project from json (throws std::runtime_error on invalid data)
 inline ProjectData parseProject(const json& j);
@@ -76,11 +76,9 @@ public:
             }
 
             // Build metadata for the registry
-            // TODO: multiple streams per data source!
             StreamMetadata meta;
             meta.name = desc.name;
             meta.schema = desc.schema;
-            //meta.fidelity = ...
 
             // Create stream in registry (this will trigger StorageManager via event subscription)
             if (!registry_->create_stream(desc.name, meta)) {
@@ -90,7 +88,7 @@ public:
             }
 
             // Create source for this stream
-            auto svc = CreateSourceByType(desc.name, desc.type, desc.schema, *storage_.get(), ioc_);
+            auto svc = CreateSourceByType(desc.name, desc.type, *desc.metadata.get(), desc.schema, *storage_.get(), ioc_);
             if (!svc) {
                 outError = "no factory for service type: " + desc.type + " (stream: " + desc.name + ")";
                 sources_.clear();

@@ -32,34 +32,6 @@ struct FieldDesc {
 };
 
 class Schema {
-    std::vector<FieldDesc> fields_;
-    std::size_t totalSize_ = 0;
-    bool finalised_ = false;
-
-    static std::size_t size_of(Kind k) {
-        switch (k) {
-        case Kind::Int32:  return sizeof(int32_t);
-        case Kind::Int64:  return sizeof(int64_t);
-        case Kind::Float:  return sizeof(float);
-        case Kind::Double: return sizeof(double);
-        case Kind::String: return sizeof(char*); // store pointer
-        case Kind::Blob:   return sizeof(void*); // store pointer
-        }
-        return 1;
-    }
-    static std::size_t align_of(Kind k) {
-        switch (k) {
-        case Kind::Int32:  return alignof(int32_t);
-        case Kind::Int64:  return alignof(int64_t);
-        case Kind::Float:  return alignof(float);
-        case Kind::Double: return alignof(double);
-        case Kind::String: return alignof(char*);
-        case Kind::Blob:   return alignof(void*);
-        }
-        return 1;
-    }
-    static std::size_t align_up(std::size_t off, std::size_t a) { return (off + a - 1) & ~(a - 1); }
-
 public:
     void add_field(std::string name, Kind k) {
         if (finalised_) throw std::logic_error("Schema already finalised");
@@ -99,4 +71,33 @@ public:
     }
 
     const std::vector<FieldDesc>& fields() const { return fields_; }
+
+private:
+    std::vector<FieldDesc> fields_;
+    std::size_t totalSize_ = 0;
+    bool finalised_ = false;
+
+    static std::size_t size_of(Kind k) {
+        switch (k) {
+        case Kind::Int32:  return sizeof(int32_t);
+        case Kind::Int64:  return sizeof(int64_t);
+        case Kind::Float:  return sizeof(float);
+        case Kind::Double: return sizeof(double);
+        case Kind::String: return sizeof(char*); // store pointer
+        case Kind::Blob:   return sizeof(void*); // store pointer
+        }
+        return 1;
+    }
+    static std::size_t align_of(Kind k) {
+        switch (k) {
+        case Kind::Int32:  return alignof(int32_t);
+        case Kind::Int64:  return alignof(int64_t);
+        case Kind::Float:  return alignof(float);
+        case Kind::Double: return alignof(double);
+        case Kind::String: return alignof(char*);
+        case Kind::Blob:   return alignof(void*);
+        }
+        return 1;
+    }
+    static std::size_t align_up(std::size_t off, std::size_t a) { return (off + a - 1) & ~(a - 1); }
 };

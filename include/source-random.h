@@ -11,12 +11,15 @@
 
 class RandomSource : public SourceBase {
 public:
+    struct Metadata : IMetadata {
+    };
+
     // Create with a descriptor and a buffer capacity
-    static std::shared_ptr<RandomSource> Create(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
-        return std::make_shared<RandomSource>(name, schema, storage, ioc);
+    static std::shared_ptr<RandomSource> Create(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) {
+        return std::make_shared<RandomSource>(name, schema, metadata, storage, ioc);
     }
 
-    RandomSource(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc)
+    RandomSource(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)
         : SourceBase(name, schema, storage, ioc),
         gen_(std::random_device{}()) {
     }
@@ -46,7 +49,7 @@ public:
     // and behave identical to TryAcquireSample (always returns immediately).
     bool DoAcquireSample(std::chrono::milliseconds /*timeout*/,
         SampleHandle& outHandle,
-        const uint8_t*& outData,
+        const std::byte*& outData,
         size_t& outSize,
         Sample& outMeta) override
     {
@@ -85,9 +88,9 @@ protected:
             }
         }
         SubmitResult r = token_.try_submit(std::move(
-            std::vector<uint8_t>(reinterpret_cast<uint8_t*>(
+            std::vector<std::byte>(reinterpret_cast<std::byte*>(
                 instance.get_data()),
-                reinterpret_cast<uint8_t*>(instance.get_data()) + schema_.value().instance_size())));
+                reinterpret_cast<std::byte*>(instance.get_data()) + schema_.value().instance_size())));
     }
 
 private:

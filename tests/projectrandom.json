@@ -1,0 +1,15 @@
+{
+  "name": "Test Project 1",
+  "sources": [
+    {
+      "name": "my random data",
+      "type": "Random",
+      "signals": [
+        { "name": "signal1", "type": "int32", "unit": "Celsius" },
+        { "name": "signal2", "type": "float", "unit": "Celsius" },
+        { "name": "signal3", "type": "float", "unit": "Celsius" },
+        { "name": "signal4", "type": "float", "unit": "Celsius" }
+      ]
+    }
+  ]
+}

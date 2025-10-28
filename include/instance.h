@@ -1,33 +1,14 @@
 #pragma once
 #include "schema.h"
+#include <vector>
+#include <optional>
+#include <cstring>
+#include <stdexcept>
 
 class Instance {
-private:
-    const Schema& schema_;
-    std::unique_ptr<std::byte> data_;
-
-    void* ptr_at(std::size_t offset) { return static_cast<void*>(data_.get() + offset); }
-    const void* ptr_at(std::size_t offset) const { return static_cast<const void*>(data_.get() + offset); }
-
 public:
-    explicit Instance(const Schema& s) : schema_(s) {
-        data_.reset(new std::byte[s.instance_size()]);
-        std::memset(data_.get(), 0, s.instance_size());
-    }
-
-    // Destruction: free heap payloads
-    ~Instance() {
-        for (const auto& f : schema_.fields()) {
-            if (f.kind == Kind::String) {
-                char* const* slot = reinterpret_cast<char* const*>(ptr_at(f.offset));
-                delete[] * slot;
-            }
-            else if (f.kind == Kind::Blob) {
-                void* const* slot = reinterpret_cast<void* const*>(ptr_at(f.offset));
-                auto vecPtr = reinterpret_cast<std::vector<uint8_t>*>(*slot);
-                delete vecPtr;
-            }
-        }
+    explicit Instance(Schema s)
+        : schema_(s), data_(s.instance_size(), std::byte{ 0 }) {
     }
 
     // Setters for arithmetic types
@@ -71,19 +52,19 @@ public:
     }
 
     // Blob setter (store heap-allocated vector)
-    void set_blob(const std::string& name, const std::vector<uint8_t>& blob) {
+    void set_blob(const std::string& name, const std::vector<std::byte>& blob) {
         const FieldDesc* f = schema_.find(name);
         if (!f) throw std::out_of_range("field not found: " + name);
         if (f->kind != Kind::Blob) throw std::bad_cast();
 
         void** slot = reinterpret_cast<void**>(ptr_at(f->offset));
-        auto newVec = new std::vector<uint8_t>(blob);
-        auto oldVec = reinterpret_cast<std::vector<uint8_t>*>(*slot);
+        auto newVec = new std::vector<std::byte>(blob);
+        auto oldVec = reinterpret_cast<std::vector<std::byte>*>(*slot);
         delete oldVec;
         *slot = newVec;
     }
 
-    // Getters (templated)
+    // Getters
     template<typename T>
     std::optional<T> get(const std::string& name) const {
         const FieldDesc* f = schema_.find(name);
@@ -111,11 +92,11 @@ public:
             if (!*slot) return std::string{};
             return std::string(*slot);
         }
-        else if constexpr (std::is_same_v<T, std::vector<uint8_t>>) {
+        else if constexpr (std::is_same_v<T, std::vector<std::byte>>) {
             if (f->kind != Kind::Blob) return std::nullopt;
             void* const* slot = reinterpret_cast<void* const*>(ptr_at(f->offset));
-            auto vecPtr = reinterpret_cast<std::vector<uint8_t>*>(*slot);
-            if (!vecPtr) return std::vector<uint8_t>{};
+            auto vecPtr = reinterpret_cast<std::vector<std::byte>*>(*slot);
+            if (!vecPtr) return std::vector<std::byte>{};
             return *vecPtr;
         }
         else {
@@ -141,7 +122,18 @@ public:
         }
     }
 
-    void* get_data() {
-        return data_.get();
+    void* get_data() noexcept {
+        return data_.data();
     }
+
+    void set_data(const void* src) {
+        std::memcpy(data_.data(), src, schema_.instance_size());
+    }
+
+private:
+    Schema schema_;
+    std::vector<std::byte> data_; // safer than unique_ptr
+
+    void* ptr_at(std::size_t offset) noexcept { return static_cast<void*>(data_.data() + offset); }
+    const void* ptr_at(std::size_t offset) const noexcept { return static_cast<const void*>(data_.data() + offset); }
 };

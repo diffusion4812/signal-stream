@@ -11,9 +11,14 @@
 
 using json = nlohmann::json;
 
+struct IMetadata {
+    virtual ~IMetadata() = default;
+};
+
 struct SourceData {
     std::string name;
     std::string type;
+    std::shared_ptr<IMetadata> metadata;
     Schema schema;
 };
 

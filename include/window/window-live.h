@@ -6,49 +6,90 @@
 #include "projectenvironment.h"
 #include "storage-manager.h"
 #include "storage-buffer.h"
+#include "schema.h"
+#include "instance.h"
 
 class Window_Live : public WindowCRTP<Window_Live> {
 public:
     struct Payload {
         ProjectManager& pm;
-        std::string source;
+        std::string sourcename;
+        Schema schema;
+        // First selected signal
+        std::string signalname;
+        Kind signalkind;
     };
 
-    explicit Window_Live(const Payload& payload) : pm_(payload.pm) {
-        handle_ = std::make_unique<StreamBufferHandle>(pm_.GetBufferHandle(payload.source));
+    struct DragAndDropPayload {
+        std::string sourcename;
+        std::string signalname;
+        Kind signalkind;
+    };
+
+    explicit Window_Live(const Payload& payload) :
+        pm_(payload.pm),
+        schema_(payload.schema),
+        instance_(schema_) {
+
+        DisplayedSource source;
+        source.handle = std::make_unique<StreamBufferHandle>(pm_.GetBufferHandle(payload.sourcename));
+        source.signals.emplace_back(DisplayedSignal{ payload.signalname, payload.signalkind });
+
+        sources_.emplace(payload.sourcename, std::move(source));
+
+        ImPlotStyle& style = ImPlot::GetStyle();
+        style.Use24HourClock = true;
+        style.UseLocalTime = true;
     }
 
     void OnRender(WindowManager& wm) {
         ImGui::Begin("Live Window");
-        std::vector<std::pair<ts_t, std::vector<uint8_t>>> records = handle_->buf->latest_parsed(10000);
-        size_t N = records.size();
-        std::vector<double> xs;
-        std::vector<double> ys;
-        xs.reserve(N);
-        ys.reserve(N);
 
-        // choose reference time to show relative seconds (prevents large X values)
-        double t0 = 0;
-        if (N > 0) t0 = static_cast<double>(records.front().first) / 1000000000.0; // first ts in seconds
+        for (auto& source : sources_) {
+            StreamBuffer::MultiPlotData plotData = source.second.handle->buf->latest_multi_plot_data(
+                10000,
+                source.second.signals.size(),
+                [&](const std::byte* payload, std::vector<std::vector<double>>& ys) {
+                    instance_.set_data(payload);
+                    for (size_t i = 0; i < source.second.signals.size(); ++i) {
+                        const auto& signal = source.second.signals[i];
+                        switch (signal.kind) {
+                        case Kind::Int32:
+                            ys[i].push_back(static_cast<double>(instance_.get<int32_t>(signal.name).value()));
+                            break;
+                        case Kind::Float:
+                            ys[i].push_back(static_cast<double>(instance_.get<float>(signal.name).value()));
+                            break;
+                        }
+                    }
+                }
+            );
 
-        for (const auto& rec : records) {
-            int64_t ts_ms = rec.first;
-            // X: relative time in seconds
-            double t = static_cast<double>(ts_ms) / 1000000000.0 - t0;
-            xs.push_back(t);
+            ImPlot::BeginPlot(source.first.c_str());
+            ImPlot::SetupAxis(ImAxis_X1, "Time");
+            ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
+            ImPlot::SetupAxis(ImAxis_Y1, "");
+            ImPlot::SetupAxis(ImAxis_Y2, "");
 
-            // Y: decode payload -> here we assume 8-byte little-endian double
-            const auto& payload = rec.second;
-            float value = 0.0;
-            std::memcpy(&value, payload.data(), sizeof(float));
-            ys.push_back(static_cast<double>(value));
+            for (size_t i = 0; i < source.second.signals.size(); ++i) {
+                ImPlot::SetAxis(source.second.signals[i].axis);
+                ImPlot::PlotLine(source.second.signals[i].name.c_str(), plotData.xs.data(), plotData.ys[i].data(), plotData.xs.size());
+            }
+
+            ImPlot::EndPlot();
+
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SIGNAL")) {
+                    IM_ASSERT(payload->DataSize == sizeof(DragAndDropPayload));
+                    const DragAndDropPayload* dragAndDropPayload = reinterpret_cast<const DragAndDropPayload*>(payload->Data);
+                    DisplayedSignal signal;
+                    signal.name = dragAndDropPayload->signalname;
+                    signal.kind = dragAndDropPayload->signalkind;
+                    source.second.signals.push_back(signal);
+                }
+            }
+
         }
-
-        // now plot with ImPlot; must be inside ImGui/ImPlot frame and between BeginPlot/EndPlot
-        // Example:
-        ImPlot::BeginPlot("My Series");
-        ImPlot::PlotLine("series", xs.data(), ys.data(), static_cast<int>(N));
-        ImPlot::EndPlot();
 
 
         ImGui::End();
@@ -58,6 +99,20 @@ private:
         return ImPlotPoint(0, 0);
     }
 
-    std::unique_ptr<StreamBufferHandle> handle_;
+    struct DisplayedSignal {
+        std::string name;
+        Kind kind;
+        ImAxis axis = ImAxis_Y1; // Default axis
+    };
+
+    struct DisplayedSource {
+        std::unique_ptr<StreamBufferHandle> handle;
+        std::vector<DisplayedSignal> signals;
+    };
+
+    std::unordered_map<std::string, DisplayedSource> sources_;
+
     ProjectManager& pm_;
+    const Schema& schema_;
+    Instance instance_;
 };
