@@ -23,6 +23,9 @@
 #include <SDL3/SDL_thread.h>
 #include <SDL3/SDL_mutex.h>
 
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/basic_file_sink.h"
+
 #include "service-bus.h"
 #include "window-manager.h"
 #include "rapidcsv.h"
@@ -52,14 +55,20 @@ static void SDLCALL appSDL_LogOutputFunction(void* userdata, int category, SDL_L
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 {
     AppState* state = new AppState();
-    state->bus = std::make_unique<ServiceBus>();
-
-    state->wm = std::make_unique<WindowManager>(*state->bus.get(), *state);
     if (!state) {
         SDL_Log("Failed to allocate memory for app state: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
     *appstate = state;
+
+    state->bus = std::make_unique<ServiceBus>();
+    state->wm = std::make_unique<WindowManager>(*state->bus.get(), *state);
+
+    state->log = spdlog::basic_logger_mt("signal-stream logger", "logs/signal-stream.log");
+    state->log->set_level(spdlog::level::info);
+    state->log->set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
+
+    state->log->info("Application state initialized");
 
     state->console = new Console();
     SDL_SetLogOutputFunction(appSDL_LogOutputFunction, state);

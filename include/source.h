@@ -15,38 +15,21 @@
 #include <utility>
 #include <cinttypes>
 #include <array>
-#include <iostream>  // For logging; replace with your library
 #include <SDL3/SDL_log.h>
 #include <boost/asio.hpp>
 
+#include "service-bus.h"
 #include "storage-manager.h"
 #include "project.h"
 #include "schema.h"  // Include the schema class
 #include "instance.h" // Include the instance class for schema integration
 
-// Simple status enum for services.
 enum class SourceStatus {
     Stopped,
     Starting,
     Running,
     Stopping,
     Error
-};
-
-// Struct for service events.
-enum class SourceEventType : uint8_t {
-    None         = 0,
-    Information  = 1,
-    Notification = 2,
-    Warning      = 3,
-    Alarm        = 4,
-    Critical     = 5
-};
-
-struct SourceEvent {
-    SourceEventType type;
-    std::string message;
-    std::optional<std::string> payload;
 };
 
 struct Sample {
@@ -66,35 +49,30 @@ public:
     virtual void Start() = 0;
     virtual void Stop() = 0;
     virtual SourceStatus Status() const = 0;
-    virtual const SourceData& Source() const = 0;
-
-    virtual bool SetupSchema(const Schema& schema) = 0;
-    using ServiceCallback = std::function<void(const SourceEvent&)>;
-    virtual std::size_t RegisterCallback(ServiceCallback cb) = 0;
-    virtual void UnregisterCallback(std::size_t handle) = 0;
 
     virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) = 0;
     virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const std::byte*& outData, size_t& outSize, Sample& outMeta) = 0;
     virtual void ReleaseSample(SampleHandle handle) = 0;
-
-    virtual SourceEvent* GetLastEvent() = 0;
 };
 
 // Concrete base class with schema integration.
-class SourceBase : public ISource {
+class Source : public ISource {
 public:
-    explicit SourceBase(const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc)
-        :
+    struct Event {
+        enum class Type { None, Information, Notification, Warning, Alarm, Critical };
+        Type type;
+        std::string message;
+        std::optional<std::string> payload;
+    };
+
+    explicit Source(ServiceBus& bus, const std::string& name, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) :
+        bus_(bus),
         status_(SourceStatus::Stopped),
-        nextCallbackHandle_(1),
         running_(false),
         schema_(schema),
-        lastEvent_(SourceEventType::None, "") {
-        RegisterCallback([this](const SourceEvent& ev) { // Log and store last event
-            if (static_cast<std::uint8_t>(ev.type) > 1) {
-                SDL_Log(ev.message.c_str());
-                lastEvent_ = ev;
-            }
+        lastEvent_(Event::Type::None, "") {
+        bus_.Subscribe<Event>([&](const Event& ev) {
+            lastEvent_ = ev;
         });
         std::optional<ProducerToken> token = storage.get_producer_token(name);
         if (!token) {
@@ -103,7 +81,7 @@ public:
         token_ = token.value();
     }
 
-    virtual ~SourceBase() { Stop(); }
+    virtual ~Source() { Stop(); }
 
     void Start() override {
         SourceStatus expected = SourceStatus::Stopped;
@@ -114,17 +92,17 @@ public:
         try {
             if (!OnStart()) {
                 status_.store(SourceStatus::Error);
-                PublishEvent({ SourceEventType::Critical, "Failed to start service", std::nullopt });
+                bus_.Publish<Event>(Event{ Event::Type::Critical, "Failed to start service", std::nullopt });
                 return;
             }
             running_.store(true);
             worker_ = std::jthread([this] { RunLoop(); });
             status_.store(SourceStatus::Running);
-            PublishEvent({ SourceEventType::Notification, "Service started successfully", std::nullopt });
+            bus_.Publish<Event>(Event{ Event::Type::Notification, "Service started successfully", std::nullopt });
         }
         catch (const std::exception& e) {
             status_.store(SourceStatus::Error);
-            PublishEvent({ SourceEventType::Critical, std::string("Exception during start: ") + e.what(), std::nullopt });
+            bus_.Publish<Event>(Event{ Event::Type::Critical, std::string("Exception during start: ") + e.what(), std::nullopt });
         }
     }
 
@@ -140,49 +118,12 @@ public:
         if (worker_.joinable()) worker_.join();
         OnStop();
         status_.store(SourceStatus::Stopped);
-        PublishEvent({ SourceEventType::Notification, "Service stopped", std::nullopt });
+        bus_.Publish<Event>(Event{ Event::Type::Notification, "Service stopped", std::nullopt });
     }
 
     SourceStatus Status() const override { return status_.load(); }
-    const SourceData& Source() const override { return source_; }
 
-    bool SetupSchema(const Schema& schema) {
-        if (status_.load() != SourceStatus::Stopped) {
-            PublishEvent({ SourceEventType::Notification, "Cannot setup schema: Service not stopped", std::nullopt });
-            return false;
-        }
-        schema_ = schema;
-        if (!schema_->isfinalised()) { // Schema must be finalised to have access to instance data (size etc.)
-            PublishEvent({ SourceEventType::Notification, "Cannot setup schema: Schema not finalised", std::nullopt });
-            return false;
-        }
-        PublishEvent({ SourceEventType::Notification, "Schema setup completed", std::nullopt });
-        return true;
-    }
-
-    std::size_t RegisterCallback(ServiceCallback cb) override {
-        if (!cb) {
-            throw std::invalid_argument("Callback cannot be null");
-        }
-        std::lock_guard<std::recursive_mutex> lk(cbMtx_);
-        std::size_t h = nextCallbackHandle_++;
-        callbacks_.emplace_back(h, std::move(cb));
-        return h;
-    }
-
-    void UnregisterCallback(std::size_t handle) override {
-        std::lock_guard<std::recursive_mutex> lk(cbMtx_);
-        auto it = std::remove_if(callbacks_.begin(), callbacks_.end(),
-            [handle](auto& p) { return p.first == handle; });
-        if (it != callbacks_.end()) {
-            callbacks_.erase(it, callbacks_.end());
-        }
-        else {
-            std::cout << "[LOG] Callback handle not found." << std::endl;
-        }
-    }
-
-    SourceEvent* GetLastEvent() {
+    Event* GetLastEvent() {
         return &lastEvent_;
     }
 
@@ -196,7 +137,7 @@ public:
         //bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
         bool result = false;
         if (result && schema_->isfinalised() && outSize != schema_->instance_size()) {
-            PublishEvent({ SourceEventType::Notification, "Sample size does not match schema", std::nullopt });
+            bus_.Publish<Event>(Event{ Event::Type::Notification, "Sample size does not match schema", std::nullopt });
         }
         return result;
     }
@@ -219,28 +160,13 @@ protected:
         return true;
     }
 
-    void PublishEvent(const SourceEvent& ev) {
-        std::lock_guard<std::recursive_mutex> lk(cbMtx_);
-        // Copy callbacks to avoid modification during iteration
-        auto callbacksCopy = callbacks_;
-
-        for (auto& p : callbacksCopy) {
-            try {
-                p.second(ev); // invoke callback
-            }
-            catch (const std::exception& e) {
-                std::cout << "[LOG] Exception in callback [" << p.first << " - " << "]: " << e.what() << std::endl;
-            }
-        }
-    }
-
     void RunLoop() {
         while (running_.load()) {
             try {
                 RunOnce();
             }
             catch (const std::exception& e) {
-                PublishEvent({ SourceEventType::Critical, std::string("Exception in RunOnce: ") + e.what(), std::nullopt });
+                bus_.Publish<Event>(Event{ Event::Type::Critical, std::string("Exception in RunOnce: ") + e.what(), std::nullopt });
             }
             std::unique_lock<std::mutex> lk(mtx_);
             cv_.wait_for(lk, std::chrono::milliseconds(200), [this] { return !running_.load(); });
@@ -255,15 +181,11 @@ protected:
     virtual bool DoAcquireSample(std::chrono::milliseconds, SampleHandle&, const std::byte*&, size_t&, Sample&) = 0;
     virtual void DoReleaseSample(SampleHandle) = 0;
 
-    SourceData source_;
     std::optional<Schema> schema_;
 
 private:
-    std::recursive_mutex cbMtx_;
-    std::size_t nextCallbackHandle_;
-    std::vector<std::pair<std::size_t, ServiceCallback>> callbacks_;
-
-    SourceEvent lastEvent_;
+    ServiceBus& bus_;
+    Event lastEvent_;
 
     std::atomic<bool> running_;
     std::jthread worker_;

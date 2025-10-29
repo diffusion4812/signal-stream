@@ -9,18 +9,19 @@
 
 #include "source.h"
 
-class RandomSource : public SourceBase {
+class RandomSource : public Source {
 public:
     struct Metadata : IMetadata {
     };
 
     // Create with a descriptor and a buffer capacity
-    static std::shared_ptr<RandomSource> Create(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) {
-        return std::make_shared<RandomSource>(name, schema, metadata, storage, ioc);
+    static std::shared_ptr<RandomSource> Create(ServiceBus& bus, const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) {
+        return std::make_shared<RandomSource>(bus, name, schema, metadata, storage, ioc);
     }
 
-    RandomSource(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)
-        : SourceBase(name, schema, storage, ioc),
+    RandomSource(ServiceBus& bus, const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) :
+        Source(bus, name, schema, storage, ioc),
+        bus_(bus),
         gen_(std::random_device{}()) {
     }
 
@@ -69,7 +70,7 @@ protected:
 
     void RunOnce() override {
         // Notify listeners
-        PublishEvent({ SourceEventType::Information, "random buffer produced", {} });
+        bus_.Publish<Event>(Event{ Event::Type::Information, "random buffer produced" });
         Instance instance(schema_.value());
         for (const auto& f : schema_.value().fields()) {
             switch (f.kind) {
@@ -94,6 +95,8 @@ protected:
     }
 
 private:
+    ServiceBus& bus_;
+
     template <typename T>
     T rand_between(T a, T b, std::mt19937_64& rng) {
         if constexpr (std::is_integral_v<T>) {

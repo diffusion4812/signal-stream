@@ -1,5 +1,6 @@
 #pragma once
 
+#include "spdlog/spdlog.h"
 #include <boost/asio.hpp>
 #include "projectenvironment.h"
 #include "window.h"
@@ -14,6 +15,7 @@ struct AppState {
     std::unique_ptr<ServiceBus> bus;
     std::unique_ptr<ProjectManager> pm;
     std::unique_ptr<WindowManager> wm;
+    std::shared_ptr<spdlog::logger> log;
 
     Console* console;
     bool consoleIsOpen;

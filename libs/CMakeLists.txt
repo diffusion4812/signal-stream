@@ -20,3 +20,6 @@ set(LIBS_SRCS
 
 source_group("Libraries" FILES ${LIBS_SRCS})
 target_sources(signal-stream PRIVATE ${LIBS_SRCS})
+
+add_subdirectory(C:/Users/LOAR02/Source/Libraries/spdlog spdlog)
+target_link_libraries(signal-stream spdlog)

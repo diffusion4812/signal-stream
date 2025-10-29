@@ -5,11 +5,12 @@
 #include <functional>
 #include <memory>
 
+#include "service-bus.h"
 #include "project.h"
 #include "source.h"
 
 // Factory function type: create service instance for given descriptor
-using SourceFactoryFn = std::function<std::shared_ptr<ISource>(const std::string& name, const Schema& schema, const IMetadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)>;
+using SourceFactoryFn = std::function<std::shared_ptr<ISource>(ServiceBus& bus, const std::string& name, const Schema& schema, const IMetadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)>;
 
 // Registry accessor. Constructed on first use (C++11+ thread-safe).
 inline std::unordered_map<std::string, SourceFactoryFn>& SourceFactoryMap() {
@@ -37,14 +38,15 @@ inline bool RegisterSourceFactory(const std::string& type, SourceFactoryFn fn) {
         struct CONCAT(_source_registrar, __LINE__) { \
             CONCAT(_source_registrar, __LINE__)() { \
                 RegisterSourceFactory(TYPE_STR, \
-                    [](const std::string& name, \
+                    [](ServiceBus& bus, \
+                       const std::string& name, \
                        const Schema& schema, \
                        const IMetadata& metadata, \
                        StorageManager& storage, \
                        boost::asio::io_context& ioc) \
                     { \
                         auto const& typedMeta = dynamic_cast<const SOURCE_CLASS::Metadata&>(metadata); \
-                        return SOURCE_CLASS::Create(name, schema, typedMeta, storage, ioc); \
+                        return SOURCE_CLASS::Create(bus, name, schema, typedMeta, storage, ioc); \
                     } \
                 ); \
             } \
@@ -53,9 +55,9 @@ inline bool RegisterSourceFactory(const std::string& type, SourceFactoryFn fn) {
     }
 
 // Lookup helper: create source by type; returns nullptr if type not found.
-inline std::shared_ptr<ISource> CreateSourceByType(const std::string& name, const std::string& type, const IMetadata& metadata, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
+inline std::shared_ptr<ISource> CreateSourceByType(ServiceBus& bus, const std::string& name, const std::string& type, const IMetadata& metadata, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
     auto& m = SourceFactoryMap();
     auto it = m.find(type);
     if (it == m.end()) return nullptr;
-    return it->second(name, schema, metadata, storage, ioc);
+    return it->second(bus, name, schema, metadata, storage, ioc);
 }

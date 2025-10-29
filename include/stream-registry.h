@@ -31,16 +31,15 @@ struct RegistryStreamHolder {
     explicit RegistryStreamHolder(StreamMetadata m) : metadata(std::move(m)) {}
 };
 
-struct RegistryEvent {
-    enum class Type { Created, Updated, Deleted, Renamed };
-    Type type;
-    std::string streamname;
-    const StreamMetadata& meta;
-};
-
-// The StreamRegistry interface
-class StreamRegistry {
+class SourceRegistry {
 public:
+    struct Event {
+        enum class Type { Created, Updated, Deleted, Renamed };
+        Type type;
+        std::string streamname;
+        const StreamMetadata& meta;
+    };
+
     // Create a new stream; returns true on success, false on conflict/invalid.
     virtual bool create_stream(const std::string& streamId, const StreamMetadata& meta) = 0;
 
@@ -71,5 +70,5 @@ public:
     // Optional helpers to access runtime resources
     virtual std::shared_ptr<RegistryStreamHolder> get_or_create_holder(const std::string& streamId) = 0;
 
-    virtual ~StreamRegistry() = default;
+    virtual ~SourceRegistry() = default;
 };

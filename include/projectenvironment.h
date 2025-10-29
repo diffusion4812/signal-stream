@@ -32,18 +32,17 @@ class ProjectManager {
 public:
     using ErrorString = std::string;
     using SourcePtr = std::shared_ptr<ISource>;
-    using GlobalEventCallback = std::function<void(const SourceData&, const SourceEvent&)>;
 
     explicit ProjectManager() = default;
 
     ProjectManager(ServiceBus& bus, const std::string& path, bool autostart, boost::asio::io_context& ioc) :
             bus_(bus),
             path_(path),
-            registry_(MakeStreamRegistry(bus_)),
+            registry_(MakeSourceRegistry(bus_)),
             storage_(std::make_unique<StorageManager>()),
             ioc_(ioc) {
 
-        storageSubscriptionToken_ = bus_.Subscribe<RegistryEvent>([&](const RegistryEvent& ev) {
+        storageSubscriptionToken_ = bus_.Subscribe<SourceRegistry::Event>([&](const SourceRegistry::Event& ev) {
                 storage_->handle_registry_event(ev.type, ev.streamname, ev.meta);
             }
         );
@@ -89,7 +88,7 @@ public:
             }
 
             // Create source for this stream
-            auto svc = CreateSourceByType(desc.name, desc.type, *desc.metadata.get(), desc.schema, *storage_.get(), ioc_);
+            auto svc = CreateSourceByType(bus_, desc.name, desc.type, *desc.metadata.get(), desc.schema, *storage_.get(), ioc_);
             if (!svc) {
                 outError = "no factory for service type: " + desc.type + " (stream: " + desc.name + ")";
                 sources_.clear();
@@ -210,23 +209,6 @@ public:
         return storage_.get()->GetBufferHealth(servicename).value_or(0.0f);
     }
 
-    // Register a global event callback invoked when any service emits an event.
-    // Multiple registrations supported; returns an id for later deregistration.
-    std::size_t RegisterGlobalEventCallback(GlobalEventCallback cb) {
-        std::lock_guard<std::mutex> lk(mtx_);
-        std::size_t id = ++nextGlobalCallbackId_;
-        globalCallbacks_.emplace_back(id, std::move(cb));
-        return id;
-    }
-
-    // Unregister global event callback
-    void UnregisterGlobalEventCallback(std::size_t id) {
-        std::lock_guard<std::mutex> lk(mtx_);
-        globalCallbacks_.erase(
-            std::remove_if(globalCallbacks_.begin(), globalCallbacks_.end(),
-                [id](auto& p) { return p.first == id; }), globalCallbacks_.end());
-    }
-
 private:
     // internal helpers (assumes mtx_ locked where noted)
     void StopAllServicesLocked() {
@@ -245,23 +227,6 @@ private:
         }
     }
 
-    // Attach a per-service callback that forwards to global callbacks.
-    // Must be called while holding mtx_
-    void AttachForwardingCallbackUnlocked(const SourceData& desc, SourcePtr svc) {
-        auto forwarder = [this, desc](const SourceEvent& ev) {
-            // copy callbacks under lock then invoke outside lock to avoid deadlocks
-            std::vector<GlobalEventCallback> cbs;
-            std::lock_guard<std::mutex> lk(mtx_);
-            for (auto const& p : globalCallbacks_) cbs.push_back(p.second); // Create a local copy of callbacks
-            for (auto const& cb : cbs) {
-                try { cb(desc, ev); }
-                catch (...) { /* swallow */ }
-            }
-            };
-        // register callback on the service
-        svc->RegisterCallback([forwarder](const SourceEvent& ev) { forwarder(ev); });
-    }
-
     ServiceBus& bus_;
 
     boost::asio::io_context& ioc_;
@@ -273,12 +238,8 @@ private:
     std::string path_;
     uint32_t hash_ = 0;
 
-    // global event callbacks: pair(id, callback)
-    std::vector<std::pair<std::size_t, GlobalEventCallback>> globalCallbacks_;
-    std::size_t nextGlobalCallbackId_{ 0 };
-
     // Data storage and stream registry
-    std::unique_ptr<StreamRegistry> registry_;
+    std::unique_ptr<SourceRegistry> registry_;
     std::unique_ptr<StorageManager> storage_;
     SubscriptionToken storageSubscriptionToken_; // Storage Manager subscription token for events published by Stream Registry
 };

@@ -17,19 +17,21 @@
 
 using mqtt_client_t = async_mqtt::client<async_mqtt::protocol_version::v5, async_mqtt::protocol::mqtt>;
 
-class MQTTSource : public SourceBase {
+class MQTTSource : public Source {
 public:
     struct Metadata : IMetadata {
         std::string topic;
     };
 
     // Create with a descriptor and a buffer capacity
-    static std::shared_ptr<MQTTSource> Create(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) {
-        return std::make_shared<MQTTSource>(name, schema, metadata, storage, ioc);
+    static std::shared_ptr<MQTTSource> Create(ServiceBus& bus, const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) {
+        return std::make_shared<MQTTSource>(bus, name, schema, metadata, storage, ioc);
     }
 
-    MQTTSource(const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)
-        : SourceBase(name, schema, storage, ioc), ioc_(ioc), cli_(ioc_.get_executor()), topic_(metadata.topic) {
+    MQTTSource(ServiceBus& bus, const std::string& name, const Schema& schema, const Metadata& metadata, StorageManager& storage, boost::asio::io_context& ioc) :
+        Source(bus, name, schema, storage, ioc), ioc_(ioc), cli_(ioc_.get_executor()),
+        bus_(bus),
+        topic_(metadata.topic) {
     }
 
     // Non-blocking attempt to acquire one sample buffer.
@@ -66,6 +68,8 @@ protected:
     }
 
 private:
+    ServiceBus& bus_;
+
     void connect() {
         cli_.async_underlying_handshake(
             host_,

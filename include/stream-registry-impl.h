@@ -10,18 +10,10 @@
 #include "stream-registry.h"
 #include "service-bus.h"
 
-// Concrete registry implementation
-class StreamRegistryImpl : public StreamRegistry {
+class SourceRegistryImpl : public SourceRegistry {
 public:
-    struct StreamEvent {
-        enum class Type { Created, Deleted, Updated };
-        Type type;
-        std::string streamId;
-        StreamMetadata metadata;
-    };
-
-    StreamRegistryImpl(ServiceBus& bus);
-    ~StreamRegistryImpl() override;
+    SourceRegistryImpl(ServiceBus& bus);
+    ~SourceRegistryImpl() override;
 
     // Lifecycle
     bool create_stream(const std::string& streamId, const StreamMetadata& meta) override;
@@ -48,4 +40,4 @@ private:
     std::unordered_map<std::string, std::shared_ptr<RegistryStreamHolder>> holders_;
 };
 
-std::unique_ptr<StreamRegistry> MakeStreamRegistry(ServiceBus& bus);
+std::unique_ptr<SourceRegistry> MakeSourceRegistry(ServiceBus& bus);
