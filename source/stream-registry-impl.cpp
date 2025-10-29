@@ -7,7 +7,10 @@
 
 #include "stream-registry-impl.h"
 
-StreamRegistryImpl::StreamRegistryImpl() = default;
+StreamRegistryImpl::StreamRegistryImpl(ServiceBus& bus) :
+    bus_(bus) {
+}
+
 StreamRegistryImpl::~StreamRegistryImpl() = default;
 
 // Create stream
@@ -19,21 +22,21 @@ bool StreamRegistryImpl::create_stream(const std::string& streamId, const Stream
         }
         holders_.emplace(streamId, std::make_shared<RegistryStreamHolder>(meta));
     }
-
-    // Lock released here before publishing
-    publish_event(RegistryEventType::Created, streamId, meta);
+    bus_.Publish<RegistryEvent>(RegistryEvent{ RegistryEvent::Type::Created, streamId, meta });
     return true;
 }
 
 // Delete stream
 bool StreamRegistryImpl::delete_stream(const std::string& streamId) {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    auto it = holders_.find(streamId);
-    if (it == holders_.end()) return false;
+    {
+        std::scoped_lock<std::mutex> lk(mtx_);
+        auto it = holders_.find(streamId);
+        if (it == holders_.end()) return false;
 
-    // Cleanup runtime state if needed (buffers, files, etc.)
-    holders_.erase(it);
-    publish_event(RegistryEventType::Deleted, streamId, {});
+        // Cleanup runtime state if needed (buffers, files, etc.)
+        holders_.erase(it);
+    }
+    bus_.Publish<RegistryEvent>(RegistryEvent{ RegistryEvent::Type::Deleted, streamId, {} });
     return true;
 }
 
@@ -55,41 +58,28 @@ std::optional<StreamMetadata> StreamRegistryImpl::get_stream_metadata(const std:
 
 // Update stream
 bool StreamRegistryImpl::update_stream(const std::string& streamId, const StreamMetadata& updatedMeta) {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    auto it = holders_.find(streamId);
-    if (it == holders_.end()) return false;
-
-    // Apply updates to StreamHolder (e.g., opts, recordSizeBytes, etc.)
-    // For example:
-    // it->second->opts = updatedMeta.someOption;
-    publish_event(RegistryEventType::Updated, streamId, updatedMeta);
+    {
+        std::scoped_lock<std::mutex> lk(mtx_);
+        auto it = holders_.find(streamId);
+        if (it == holders_.end()) return false;
+    }
+    bus_.Publish<RegistryEvent>(RegistryEvent{ RegistryEvent::Type::Updated, streamId, updatedMeta });
     return true;
 }
 
 // Rename stream
 bool StreamRegistryImpl::rename_stream(const std::string& oldName, const std::string& newName) {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    auto it = holders_.find(oldName);
-    if (it == holders_.end()) return false;
+    {
+        std::scoped_lock<std::mutex> lk(mtx_);
+        auto it = holders_.find(oldName);
+        if (it == holders_.end()) return false;
 
-    auto holder = it->second;
-    holders_.erase(it);
-    holders_.emplace(newName, holder);
-    publish_event(RegistryEventType::Renamed, newName, {});
+        auto holder = it->second;
+        holders_.erase(it);
+        holders_.emplace(newName, holder);
+    }
+    bus_.Publish<RegistryEvent>(RegistryEvent{ RegistryEvent::Type::Renamed, newName, {} });
     return true;
-}
-
-// Listener management
-int StreamRegistryImpl::register_listener(Listener listener) {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    int token = nextListenerToken_++;
-    listeners_.emplace(token, std::move(listener));
-    return token;
-}
-
-void StreamRegistryImpl::unregister_listener(int token) {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    listeners_.erase(token);
 }
 
 // Lists
@@ -133,34 +123,6 @@ std::shared_ptr<RegistryStreamHolder> StreamRegistryImpl::get_or_create_holder(c
     return nullptr;
 }
 
-void StreamRegistryImpl::lock_registry() {
-    mtx_.lock();
-}
-
-void StreamRegistryImpl::unlock_registry() {
-    mtx_.unlock();
-}
-
-std::shared_ptr<void> StreamRegistryImpl::subscribe_with_token(Listener listener) {
-    int tok = register_listener(std::move(listener));
-    // Simple RAII token: unregister on destruction
-    return std::shared_ptr<void>(nullptr, [this, tok](void*) { unregister_listener(tok); });
-}
-
-void StreamRegistryImpl::publish_event(RegistryEventType type,
-                                       const std::string& streamId,
-    const StreamMetadata& meta) {
-    // Copy tokens to avoid holding lock while invoking user callbacks
-    std::vector<Listener> toNotify;
-    {
-        std::scoped_lock lk(mtx_);
-        for (auto& kv : listeners_) {
-            toNotify.push_back(kv.second);
-        }
-    } // lock released here
-
-    // Call listeners without holding the lock
-    for (auto& cb : toNotify) {
-        if (cb) cb(type, streamId, meta);
-    }
+std::unique_ptr<StreamRegistry> MakeStreamRegistry(ServiceBus& bus) {
+    return std::make_unique<StreamRegistryImpl>(bus);
 }

@@ -10,6 +10,7 @@
 #include <thread>
 #include <condition_variable>
 
+#include "service-bus.h"
 #include "hash.h"
 #include "project.h"
 #include "storage-manager.h"
@@ -35,15 +36,15 @@ public:
 
     explicit ProjectManager() = default;
 
-    ProjectManager(const std::string& path, bool autostart, boost::asio::io_context& ioc) :
+    ProjectManager(ServiceBus& bus, const std::string& path, bool autostart, boost::asio::io_context& ioc) :
+            bus_(bus),
             path_(path),
-            registry_(make_stream_registry()),
+            registry_(MakeStreamRegistry(bus_)),
             storage_(std::make_unique<StorageManager>()),
             ioc_(ioc) {
 
-        storageSubscriptionToken_ = registry_->subscribe_with_token(
-            [this](RegistryEventType type, const std::string& streamId, const StreamMetadata& meta) {
-                storage_->handle_registry_event(type, streamId, meta);
+        storageSubscriptionToken_ = bus_.Subscribe<RegistryEvent>([&](const RegistryEvent& ev) {
+                storage_->handle_registry_event(ev.type, ev.streamname, ev.meta);
             }
         );
 
@@ -261,6 +262,8 @@ private:
         svc->RegisterCallback([forwarder](const SourceEvent& ev) { forwarder(ev); });
     }
 
+    ServiceBus& bus_;
+
     boost::asio::io_context& ioc_;
 
     mutable std::mutex mtx_;
@@ -277,5 +280,5 @@ private:
     // Data storage and stream registry
     std::unique_ptr<StreamRegistry> registry_;
     std::unique_ptr<StorageManager> storage_;
-    std::shared_ptr<void> storageSubscriptionToken_; // Storage Manager subscription token for events published by Stream Registry
+    SubscriptionToken storageSubscriptionToken_; // Storage Manager subscription token for events published by Stream Registry
 };

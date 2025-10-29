@@ -8,11 +8,19 @@
 #include <functional>
 
 #include "stream-registry.h"
+#include "service-bus.h"
 
 // Concrete registry implementation
 class StreamRegistryImpl : public StreamRegistry {
 public:
-    StreamRegistryImpl();
+    struct StreamEvent {
+        enum class Type { Created, Deleted, Updated };
+        Type type;
+        std::string streamId;
+        StreamMetadata metadata;
+    };
+
+    StreamRegistryImpl(ServiceBus& bus);
     ~StreamRegistryImpl() override;
 
     // Lifecycle
@@ -34,20 +42,10 @@ public:
 
     std::shared_ptr<RegistryStreamHolder> get_or_create_holder(const std::string& streamId) override;
 
-    // Listener management
-    int register_listener(Listener listener) override;
-    void unregister_listener(int token) override;
-    std::shared_ptr<void> subscribe_with_token(Listener listener) override;
-
-    void lock_registry() override;
-    void unlock_registry() override;
-
 private:
-    // Event publishing
-    void publish_event(RegistryEventType type, const std::string& streamId, const StreamMetadata& meta);
-
+    ServiceBus& bus_;
     mutable std::mutex mtx_;
     std::unordered_map<std::string, std::shared_ptr<RegistryStreamHolder>> holders_;
-    int nextListenerToken_{ 0 };
-    std::unordered_map<int, Listener> listeners_;
 };
+
+std::unique_ptr<StreamRegistry> MakeStreamRegistry(ServiceBus& bus);

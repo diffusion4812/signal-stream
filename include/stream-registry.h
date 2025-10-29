@@ -31,16 +31,12 @@ struct RegistryStreamHolder {
     explicit RegistryStreamHolder(StreamMetadata m) : metadata(std::move(m)) {}
 };
 
-// Event types for registry notifications
-enum class RegistryEventType {
-    Created,
-    Updated,
-    Deleted,
-    Renamed
+struct RegistryEvent {
+    enum class Type { Created, Updated, Deleted, Renamed };
+    Type type;
+    std::string streamname;
+    const StreamMetadata& meta;
 };
-
-// Simple alias for listener
-using Listener = std::function<void(RegistryEventType, const std::string&, const StreamMetadata&)>;
 
 // The StreamRegistry interface
 class StreamRegistry {
@@ -61,11 +57,6 @@ public:
     // Rename a stream; returns true on success.
     virtual bool rename_stream(const std::string& oldName, const std::string& newName) = 0;
 
-    // Listener subscription
-    using Listener = std::function<void(RegistryEventType, const std::string&, const StreamMetadata&)>;
-    virtual int register_listener(Listener listener) = 0;
-    virtual void unregister_listener(int token) = 0;
-
     // Queries
     virtual std::vector<std::string> list_stream_ids() const = 0;
     virtual std::vector<StreamMetadata> list_stream_metadata() const = 0;
@@ -80,18 +71,5 @@ public:
     // Optional helpers to access runtime resources
     virtual std::shared_ptr<RegistryStreamHolder> get_or_create_holder(const std::string& streamId) = 0;
 
-    // Registry-level locking (internal-use if needed)
-    virtual void lock_registry() = 0;
-    virtual void unlock_registry() = 0;
-
-    // Subscription with token
-    virtual std::shared_ptr<void> subscribe_with_token(Listener listener) = 0;
-
-    // Publish an event (helper)
-    virtual void publish_event(RegistryEventType type, const std::string& streamId, const StreamMetadata& meta) = 0;
-
     virtual ~StreamRegistry() = default;
 };
-
-// Factory convenience (optional)
-std::unique_ptr<StreamRegistry> make_stream_registry();

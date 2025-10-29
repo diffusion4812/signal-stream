@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "service-bus.h"
+
 struct AppState;
 struct IWindow;
 
@@ -17,32 +19,25 @@ class Window_FPS;
 class Window_Live;
 class Window_OpenProject;
 
-enum class WindowEventType {
-    OpenWindow,
-    CloseWindow,
-    DataUpdate
-};
-
-struct WindowEvent {
-    WindowEventType type;
-    std::string targetWindowType; // e.g. "DetailsWindow"
-    std::any payload;             // Arbitrary data
-};
-
 class WindowManager {
 public:
-    WindowManager(AppState& state);
+    struct WindowEvent {
+        enum class Type { OpenWindow, CloseWindow, DataUpdate };
+        Type type;
+        std::string targetWindowType;
+        std::any payload;
+    };
 
-    using EventHandler = std::function<void(const WindowEvent&)>;
-
-    void subscribe(EventHandler handler);
-    void publish(const WindowEvent& event);
+    WindowManager(ServiceBus& bus, AppState& state);
     void openWindowByType(const std::string& type, const std::any& payload = {});
+    IWindow* findWindowByType(const std::string& type);
     void closeWindow(IWindow* window);
     void renderAll();
 
 private:
+    ServiceBus& bus_;
+
     std::vector<std::unique_ptr<IWindow>> windows_;
-    std::vector<EventHandler> handlers_;
+
     AppState& state_;
 };

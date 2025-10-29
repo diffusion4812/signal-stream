@@ -4,12 +4,17 @@
 #include "projectenvironment.h"
 #include "window.h"
 
+class ServiceBus;
 class Console;
 class WindowManager;
 class Schema;
 struct SDL_Thread;
 
 struct AppState {
+    std::unique_ptr<ServiceBus> bus;
+    std::unique_ptr<ProjectManager> pm;
+    std::unique_ptr<WindowManager> wm;
+
     Console* console;
     bool consoleIsOpen;
 
@@ -22,11 +27,7 @@ struct AppState {
     uint64_t frameCount;
     uint64_t lastTime;
 
-
     boost::asio::io_context* io_context;
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     SDL_Thread* ioThread;
-
-    std::vector<std::unique_ptr<ProjectManager>> projects;
-    std::unique_ptr<WindowManager> wm;
 };

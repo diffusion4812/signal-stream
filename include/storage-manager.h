@@ -157,8 +157,8 @@ public:
         running_ = false;
     }
 
-    void handle_registry_event(RegistryEventType type, const std::string& streamId, const StreamMetadata& meta) {
-        if (type == RegistryEventType::Created) {
+    void handle_registry_event(RegistryEvent::Type type, const std::string& streamId, const StreamMetadata& meta) {
+        if (type == RegistryEvent::Type::Created) {
             StreamStorageOptions opts;
             opts.capacity = 8 * 1024 * 1024; // Example: 8 KB buffer
             opts.flush_batch_size = 128;
@@ -167,14 +167,14 @@ public:
             size_t userRecordSize = meta.schema.instance_size(); // Get user record size directly from the schema
             create_stream(streamId, opts, userRecordSize);
         }
-        else if (type == RegistryEventType::Deleted) {
+        else if (type == RegistryEvent::Type::Deleted) {
             remove_stream(streamId);
         }
-        else if (type == RegistryEventType::Updated) {
+        else if (type == RegistryEvent::Type::Updated) {
             // Optional: handle changes to stream options
             // Could resize buffer, adjust flush settings, etc.
         }
-        else if (type == RegistryEventType::Renamed) {
+        else if (type == RegistryEvent::Type::Renamed) {
             // Optional: handle rename logic if needed
         }
     }

@@ -28,21 +28,18 @@ public:
         if (dialog_.HasSelected()) {
             auto selectedPath = dialog_.GetSelected().string();
             uint32_t selectedPathHash = fnv1a_32(selectedPath); // hash the path to identify already opened projects
-            for (const auto& proj : state_->projects) {
-                if (proj->GetHash() == selectedPathHash) {
-                    ImGui::OpenPopup("Project Already Opened");
-                    showModal_ = true;
-                    if (ImGui::BeginPopupModal("Project Already Opened", &showModal_, ImGuiWindowFlags_AlwaysAutoResize)) {
-                        ImGui::Text("The project at %s is already opened.", selectedPath.c_str());
-                        ImGui::EndPopup();
-                    }
-                    if (!showModal_) dialog_.Close(); // close the dialog if the modal is closed
-                    return; // project already opened
+            if (state_->pm.get() != nullptr) {
+                ImGui::OpenPopup("Project Already Opened");
+                showModal_ = true;
+                if (ImGui::BeginPopupModal("Project Already Opened", &showModal_, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::Text("The project at %s is already opened.", selectedPath.c_str());
+                    ImGui::EndPopup();
                 }
+                if (!showModal_) dialog_.Close(); // close the dialog if the modal is closed
+                return; // project already opened
             }
-            state_->projects.push_back(std::make_unique<ProjectManager>(selectedPath, autostart_, *(state_->io_context)));
+            state_->pm = std::make_unique<ProjectManager>(*state_->bus.get(), selectedPath, autostart_, *(state_->io_context));
             wm.openWindowByType("window-signalbrowser");
-            //state_->windows.push_back(std::make_unique<Window_SignalBrowser>(state_->projects.back().get()));
             dialog_.Close();
         }
         if (!dialog_.IsOpened()) SetRemove();

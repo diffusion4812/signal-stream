@@ -9,16 +9,12 @@
 #include "window-live.h"
 #include "window-openproject.h"
 
-WindowManager::WindowManager(AppState& state) : state_(state) {}
-
-void WindowManager::subscribe(EventHandler handler) {
-    handlers_.push_back(std::move(handler));
-}
-
-void WindowManager::publish(const WindowEvent& event) {
-    for (auto& h : handlers_) {
-        h(event);
-    }
+WindowManager::WindowManager(ServiceBus& bus, AppState& state) :
+    bus_(bus),
+    state_(state) {
+    bus_.Subscribe<WindowEvent>([&](const WindowEvent& ev) {
+        // Handle incoming messages
+    });
 }
 
 void WindowManager::openWindowByType(const std::string& type, const std::any& payload) {
@@ -26,7 +22,7 @@ void WindowManager::openWindowByType(const std::string& type, const std::any& pa
         windows_.push_back(std::make_unique<Window_Console>(state_.console, &(state_.consoleIsOpen)));
     }
     else if (type == "window-signalbrowser") {
-        windows_.push_back(std::make_unique<Window_SignalBrowser>(state_.projects[0].get()));
+        windows_.push_back(std::make_unique<Window_SignalBrowser>(state_.pm.get()));
     }
     else if (type == "window-filebrowser") {
         windows_.push_back(std::make_unique<Window_FileBrowser>(&state_));
@@ -40,6 +36,32 @@ void WindowManager::openWindowByType(const std::string& type, const std::any& pa
     else if (type == "window-openproject") {
         windows_.push_back(std::make_unique<Window_OpenProject>());
     }
+}
+
+IWindow* WindowManager::findWindowByType(const std::string& type) {
+    for (const auto& wptr : windows_) {
+        if (!wptr) continue;
+
+        if (type == "window-console") {
+            if (dynamic_cast<Window_Console*>(wptr.get())) return wptr.get();
+        }
+        else if (type == "window-signalbrowser") {
+            if (dynamic_cast<Window_SignalBrowser*>(wptr.get())) return wptr.get();
+        }
+        else if (type == "window-filebrowser") {
+            if (dynamic_cast<Window_FileBrowser*>(wptr.get())) return wptr.get();
+        }
+        else if (type == "window-fps") {
+            if (dynamic_cast<Window_FPS*>(wptr.get())) return wptr.get();
+        }
+        else if (type == "window-live") {
+            if (dynamic_cast<Window_Live*>(wptr.get())) return wptr.get();
+        }
+        else if (type == "window-openproject") {
+            if (dynamic_cast<Window_OpenProject*>(wptr.get())) return wptr.get();
+        }
+    }
+    return nullptr;
 }
 
 void WindowManager::closeWindow(IWindow* window) {
