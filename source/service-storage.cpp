@@ -1,4 +1,4 @@
-#include "storage-manager.h"
+#include "service-storage.h"
 
 SubmitResult ProducerToken::try_submit(std::vector<std::byte>&& batch) const {
     if (!mgr_) return SubmitResult::UnknownStream;

@@ -23,18 +23,14 @@
 #include <SDL3/SDL_thread.h>
 #include <SDL3/SDL_mutex.h>
 
-#include "spdlog/spdlog.h"
-#include "spdlog/sinks/basic_file_sink.h"
-
 #include "service-bus.h"
-#include "window-manager.h"
+#include "service-window.h"
+#include "service-logger.h"
 #include "rapidcsv.h"
 #include "appstate.h"
 #include "console.h"
 #include "idle.h"
 #include "csv.h"
-#include "tcpip.h"
-
  
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
@@ -63,12 +59,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
     state->bus = std::make_unique<ServiceBus>();
     state->wm = std::make_unique<WindowManager>(*state->bus.get(), *state);
-
-    state->log = spdlog::basic_logger_mt("signal-stream logger", "logs/signal-stream.log");
-    state->log->set_level(spdlog::level::info);
-    state->log->set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
-
-    state->log->info("Application state initialized");
+    state->log = std::make_unique<Logger>(*state->bus.get());
 
     state->console = new Console();
     SDL_SetLogOutputFunction(appSDL_LogOutputFunction, state);

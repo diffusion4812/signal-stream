@@ -1,8 +1,8 @@
 ﻿#pragma once
 
-#include "window-manager.h"
+#include "service-window.h"
 #include "window-live.h"
-#include "projectenvironment.h"
+#include "service-project.h"
 #include "imshape.h"
 
 class Window_SignalBrowser : public WindowCRTP<Window_SignalBrowser>{
@@ -152,8 +152,8 @@ public:
                 }
                 ImGui::EndTable();
             }
-            ImGui::End();
         }
+        ImGui::End();
     }
 
 private:

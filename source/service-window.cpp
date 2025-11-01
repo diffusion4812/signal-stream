@@ -1,4 +1,4 @@
-#include "window-manager.h"
+#include "service-window.h"
 #include "appstate.h"
 
 // Include window headers here

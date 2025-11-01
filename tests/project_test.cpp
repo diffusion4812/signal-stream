@@ -3,7 +3,7 @@
 #include <cstdarg>
 
 #include <gtest/gtest.h>
-#include "projectenvironment.h"
+#include "service-project.h"
 
 ProjectManager mgr;
 ProjectData pdata;

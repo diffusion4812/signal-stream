@@ -7,7 +7,7 @@
 #include "schema.h"
 #include "instance.h"
 #include "storage-buffer.h"
-#include "storage-manager.h"
+#include "service-storage.h"
 
 Schema schema;
 StreamBuffer* buff;

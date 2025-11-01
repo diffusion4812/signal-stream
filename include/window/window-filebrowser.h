@@ -1,10 +1,10 @@
 #pragma once
 
-#include "window-manager.h"
+#include "service-window.h"
 #define USE_WIN32_GETLOGICALDRIVES
 #include "imfilebrowser.h"
 #include "appstate.h"
-#include "projectenvironment.h"
+#include "service-project.h"
 #include "hash.h"
 
 class Window_FileBrowser : public WindowCRTP<Window_FileBrowser> {

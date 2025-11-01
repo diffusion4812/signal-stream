@@ -11,10 +11,11 @@
 #include <condition_variable>
 
 #include "service-bus.h"
+#include "service-logger.h"
 #include "hash.h"
 #include "project.h"
-#include "storage-manager.h"
-#include "stream-registry-impl.h"
+#include "service-storage.h"
+#include "service-source-registry.h"
 #include "source.h"
 #include "source-factory.h"
 #include "schema.h"
@@ -38,7 +39,7 @@ public:
     ProjectManager(ServiceBus& bus, const std::string& path, bool autostart, boost::asio::io_context& ioc) :
             bus_(bus),
             path_(path),
-            registry_(MakeSourceRegistry(bus_)),
+            registry_(std::make_unique<SourceRegistry>(bus_)),
             storage_(std::make_unique<StorageManager>()),
             ioc_(ioc) {
 
@@ -59,6 +60,7 @@ public:
     // Load project data (replace existing project). If 'autoStart' true, attempt to start services.
     // Returns true on success; on failure outError is filled.
     bool LoadProject(ProjectData pdata, bool autoStart, ErrorString& outError) {
+        TRACE_FUNCTION_SCOPE(bus_);
         std::scoped_lock<std::mutex> lk(mtx_);
 
         // Stop and clear existing services if any
@@ -76,7 +78,7 @@ public:
             }
 
             // Build metadata for the registry
-            StreamMetadata meta;
+            SourceMetadata meta;
             meta.name = desc.name;
             meta.schema = desc.schema;
 

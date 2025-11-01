@@ -16,7 +16,7 @@
 #include <deque>
 #include <optional>
 
-#include "stream-registry.h"
+#include "service-source-registry.h"
 #include "storage-buffer.h"
 
 // timestamp alias
@@ -47,11 +47,11 @@ struct StreamStorageOptions {
 
 struct StorageStreamHolder {
     std::shared_ptr<StreamBuffer> buffer; // shared ownership for consumers
-    StreamOptions opts;
+    SourceOptions opts;
     size_t recordSizeBytes;
-    StreamMetadata metadata;
+    SourceMetadata metadata;
 
-    StorageStreamHolder(std::shared_ptr<StreamBuffer> buf, StreamOptions o, size_t rs)
+    StorageStreamHolder(std::shared_ptr<StreamBuffer> buf, SourceOptions o, size_t rs)
         : buffer(std::move(buf)), opts(std::move(o)), recordSizeBytes(rs) {
     }
 
@@ -157,7 +157,7 @@ public:
         running_ = false;
     }
 
-    void handle_registry_event(SourceRegistry::Event::Type type, const std::string& streamId, const StreamMetadata& meta) {
+    void handle_registry_event(SourceRegistry::Event::Type type, const std::string& streamId, const SourceMetadata& meta) {
         if (type == SourceRegistry::Event::Type::Created) {
             StreamStorageOptions opts;
             opts.capacity = 8 * 1024 * 1024; // Example: 8 KB buffer

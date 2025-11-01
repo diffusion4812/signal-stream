@@ -19,7 +19,8 @@
 #include <boost/asio.hpp>
 
 #include "service-bus.h"
-#include "storage-manager.h"
+#include "service-logger.h"
+#include "service-storage.h"
 #include "project.h"
 #include "schema.h"  // Include the schema class
 #include "instance.h" // Include the instance class for schema integration
@@ -166,10 +167,8 @@ protected:
                 RunOnce();
             }
             catch (const std::exception& e) {
-                bus_.Publish<Event>(Event{ Event::Type::Critical, std::string("Exception in RunOnce: ") + e.what(), std::nullopt });
+                bus_.Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Critical, std::string("Exception in RunOnce: ") + e.what() });
             }
-            std::unique_lock<std::mutex> lk(mtx_);
-            cv_.wait_for(lk, std::chrono::milliseconds(200), [this] { return !running_.load(); });
         }
     }
 

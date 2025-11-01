@@ -150,7 +150,7 @@ public:
 
     void clear() {
         std::lock_guard<std::mutex> lk(mtx_);
-        head_ = tail_ = size_ = 0;
+        head_ = tail_ = size_:
         not_full_.notify_all();
     }
 

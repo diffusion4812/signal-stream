@@ -6,14 +6,14 @@ set(LIBS_SRCS
     C:/Users/LOAR02/Source/Libraries/imgui-docking/backends/imgui_impl_sdl3.cpp
     C:/Users/LOAR02/Source/Libraries/imgui-docking/backends/imgui_impl_sdlgpu3.cpp
 
-    C:/Users/LOAR02/Source/Libraries/implot-master/implot.cpp
-    C:/Users/LOAR02/Source/Libraries/implot-master/implot_items.cpp
+    C:/Users/LOAR02/Source/Libraries/implot/implot.cpp
+    C:/Users/LOAR02/Source/Libraries/implot/implot_items.cpp
 
     C:/Users/LOAR02/Source/Libraries/imgui_memory_editor.h
 
     C:/Users/LOAR02/Source/Libraries/imgui-filebrowser/imfilebrowser.h
 
-    C:/Users/LOAR02/Source/Libraries/rapidcsv.h
+    C:/Users/LOAR02/Source/Libraries/rapidcsv/src/rapidcsv.h
 
     C:/Users/LOAR02/Source/Libraries/json.hpp
 )

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "window-manager.h"
+#include "service-window.h"
 
 class Window_FPS : public WindowCRTP<Window_FPS> {
 public:
@@ -8,8 +8,8 @@ public:
     void OnRender(WindowManager& wm) {
         if (ImGui::Begin("FPS")) {
             ImGui::Text("%.2f", *fps_);
-            ImGui::End();
         }
+        ImGui::End();
     }
 private:
     double* fps_;

@@ -1,9 +1,9 @@
-add_subdirectory(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0 googletest-build EXCLUDE_FROM_ALL)
+add_subdirectory(C:/Users/LOAR02/Source/Libraries/googletest googletest-build EXCLUDE_FROM_ALL)
 
 add_executable(project_test
     ../source/sourceregistration.cpp
     ../source/schema.cpp
-    ../source/projectenvironment.cpp
+    ../source/service-project.cpp
     project_test.cpp
 )
 add_executable(storage_test
@@ -20,7 +20,7 @@ if(MSVC)
     target_compile_options(expression_test PRIVATE /bigobj)
 endif()
 
-link_directories(C:/Users/LOAR02/Source/Libraries/googletest-1.17.0)
+link_directories(C:/Users/LOAR02/Source/Libraries/googletest)
 target_link_libraries(project_test PRIVATE gtest_main)
 target_link_libraries(storage_test PRIVATE gtest_main)
 target_link_libraries(expression_test PRIVATE gtest_main)

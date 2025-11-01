@@ -48,8 +48,8 @@ void prepAndReadFile(void* userdata, const char* filepath) {
     file->filePath = std::filesystem::path(filepath);
     file->fileIsRead = false;
     file->fileStream = nullptr;
-    file->fileSize = 0;
-    file->bytesRead = 0;
+    file->fileSize:
+    file->bytesRead:
     file->parsedCsv = nullptr;
     file->csvTableWindowIsOpen = false;
     file->csvWindowIsOpen = false;

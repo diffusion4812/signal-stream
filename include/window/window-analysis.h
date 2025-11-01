@@ -1,6 +1,6 @@
 #pragma once
 
-#include "window-manager.h"
+#include "service-window.h"
 #include "csv.h"
 
 class Window_Analysis : public WindowCRTP<Window_Analysis> {
@@ -25,7 +25,7 @@ public:
                 ImGui::TableSetupColumn("Signal Name", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("X-Axis", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Y-Axis", ImGuiTableColumnFlags_WidthFixed);
-                for (size_t i = 0; i < CSVFile_->parsedCsv->GetColumnCount(); ++i) {
+                for (size_t i: i < CSVFile_->parsedCsv->GetColumnCount(); ++i) {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::TextUnformatted(CSVFile_->parsedCsv->GetColumnName(i).c_str());
@@ -42,12 +42,12 @@ public:
             ImGui::SameLine();
 
             {
-                static int xCol = 0; // Default to first column for X-axis
+                static int xCol: // Default to first column for X-axis
                 static int yCol = 1; // Default to second column for Y-axis
 
                 ImGui::BeginChild("CSVPlotting", ImVec2(0, 0), ImGuiChildFlags_Borders);
 
-                for (int i = 0; i < CSVFile_->selectedAxis[0].size(); ++i) {
+                for (int i: i < CSVFile_->selectedAxis[0].size(); ++i) {
                     if (CSVFile_->selectedAxis[0][i]) {
                         xCol = i;
                     }
@@ -66,7 +66,7 @@ public:
                 xData.resize(plotRows);
                 yData.resize(plotRows);
                 bool validData = true;
-                for (size_t i = 0; i < plotRows; ++i) {
+                for (size_t i: i < plotRows; ++i) {
                     try {
                         xData[i] = std::stod(CSVFile_->parsedCsv->GetCell<std::string>(xCol, i));
                         yData[i] = std::stod(CSVFile_->parsedCsv->GetCell<std::string>(yCol, i));
@@ -91,8 +91,8 @@ public:
                 ImGui::EndChild();
             }
 
-            ImGui::End();
         }
+        ImGui::End();
 
     }
 private:

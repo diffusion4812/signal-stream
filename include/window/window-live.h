@@ -2,9 +2,9 @@
 
 #include <implot.h>
 
-#include "window-manager.h"
-#include "projectenvironment.h"
-#include "storage-manager.h"
+#include "service-window.h"
+#include "service-project.h"
+#include "service-storage.h"
 #include "storage-buffer.h"
 #include "schema.h"
 #include "instance.h"
@@ -43,55 +43,56 @@ public:
     }
 
     void OnRender(WindowManager& wm) {
-        ImGui::Begin("Live Window");
-
-        for (auto& source : sources_) {
-            StreamBuffer::MultiPlotData plotData = source.second.handle->buf->latest_multi_plot_data(
-                10000,
-                source.second.signals.size(),
-                [&](const std::byte* payload, std::vector<std::vector<double>>& ys) {
-                    instance_.set_data(payload);
-                    for (size_t i = 0; i < source.second.signals.size(); ++i) {
-                        const auto& signal = source.second.signals[i];
-                        switch (signal.kind) {
-                        case Kind::Int32:
-                            ys[i].push_back(static_cast<double>(instance_.get<int32_t>(signal.name).value()));
-                            break;
-                        case Kind::Float:
-                            ys[i].push_back(static_cast<double>(instance_.get<float>(signal.name).value()));
-                            break;
+        if (ImGui::Begin("Live Window")) {
+            for (auto& source : sources_) {
+                StreamBuffer::MultiPlotData plotData = source.second.handle->buf->range_multi_plot_data(
+                    60 * 1e9, // 30 seconds of data
+                    0,        // Get latest x seconds
+                    source.second.signals.size(),
+                    [&](const std::byte* payload, std::vector<std::vector<double>>& ys) {
+                        instance_.set_data(payload);
+                        for (size_t i = 0; i < source.second.signals.size(); ++i) {
+                            const auto& signal = source.second.signals[i];
+                            switch (signal.kind) {
+                            case Kind::Int32:
+                                ys[i].push_back(static_cast<double>(instance_.get<int32_t>(signal.name).value()));
+                                break;
+                            case Kind::Float:
+                                ys[i].push_back(static_cast<double>(instance_.get<float>(signal.name).value()));
+                                break;
+                            }
                         }
+                    },
+                    static_cast<size_t>(ImGui::GetContentRegionAvail().x),
+                    5000
+                );
+
+                ImPlot::BeginPlot(source.first.c_str());
+                ImPlot::SetupAxis(ImAxis_X1, "Time", ImPlotAxisFlags_ScrollMin);
+                ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
+                ImPlot::SetupAxis(ImAxis_Y1, "");
+                ImPlot::SetupAxis(ImAxis_Y2, "");
+
+                for (size_t i = 0; i < source.second.signals.size(); ++i) {
+                    ImPlot::SetAxis(source.second.signals[i].axis);
+                    ImPlot::PlotLine(source.second.signals[i].name.c_str(), plotData.xs.data(), plotData.ys[i].data(), plotData.xs.size());
+                }
+
+                ImPlot::EndPlot();
+
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SIGNAL")) {
+                        IM_ASSERT(payload->DataSize == sizeof(DragAndDropPayload));
+                        const DragAndDropPayload* dragAndDropPayload = reinterpret_cast<const DragAndDropPayload*>(payload->Data);
+                        DisplayedSignal signal;
+                        signal.name = dragAndDropPayload->signalname;
+                        signal.kind = dragAndDropPayload->signalkind;
+                        source.second.signals.push_back(signal);
                     }
                 }
-            );
 
-            ImPlot::BeginPlot(source.first.c_str());
-            ImPlot::SetupAxis(ImAxis_X1, "Time");
-            ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
-            ImPlot::SetupAxis(ImAxis_Y1, "");
-            ImPlot::SetupAxis(ImAxis_Y2, "");
-
-            for (size_t i = 0; i < source.second.signals.size(); ++i) {
-                ImPlot::SetAxis(source.second.signals[i].axis);
-                ImPlot::PlotLine(source.second.signals[i].name.c_str(), plotData.xs.data(), plotData.ys[i].data(), plotData.xs.size());
             }
-
-            ImPlot::EndPlot();
-
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SIGNAL")) {
-                    IM_ASSERT(payload->DataSize == sizeof(DragAndDropPayload));
-                    const DragAndDropPayload* dragAndDropPayload = reinterpret_cast<const DragAndDropPayload*>(payload->Data);
-                    DisplayedSignal signal;
-                    signal.name = dragAndDropPayload->signalname;
-                    signal.kind = dragAndDropPayload->signalkind;
-                    source.second.signals.push_back(signal);
-                }
-            }
-
         }
-
-
         ImGui::End();
     }
 private:

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "window-manager.h"
+#include "service-window.h"
 
 class Window_OpenProject : public WindowCRTP<Window_OpenProject> {
 public:
@@ -10,7 +10,7 @@ public:
     void OnRender(WindowManager& wm) {
         if (ImGui::Begin("Project Name")) {
 
-            ImGui::End();
         }
+        ImGui::End();
     }
 };

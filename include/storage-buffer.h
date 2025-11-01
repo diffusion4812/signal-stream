@@ -162,6 +162,174 @@ public:
     };
 
     template<typename ExtractorFn>
+    MultiPlotData range_multi_plot_data(ts_t startTs, ts_t endTs, size_t numSignals, ExtractorFn extractor, size_t plotWidthPx = 0, size_t maxPoints = 0) const {
+        MultiPlotData mpd;
+        mpd.ys.resize(numSignals);
+
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (count_ == 0) {
+            return mpd;
+        }
+
+        ts_t rangeStart;
+        ts_t rangeEnd;
+
+        if (endTs == 0) {
+            // Get latest timestamp in buffer
+            size_t latestByte = (head_ + (count_ - 1) * recordSize_) % capacityBytes_;
+            ts_t latestTs;
+            std::memcpy(&latestTs, &buf_[latestByte], kTimestampBytes);
+
+            ts_t prevNs = static_cast<ts_t>(startTs); // here startTs is nanoseconds in "previous seconds" mode
+            rangeStart = latestTs - prevNs;
+            rangeEnd = latestTs;
+        }
+        else {
+            rangeStart = startTs;
+            rangeEnd = endTs;
+        }
+
+        if (rangeStart >= rangeEnd) {
+            return mpd; // invalid range
+        }
+
+        // Binary search for first index >= rangeStart
+        size_t low = 0;
+        size_t high = count_;
+        while (low < high) {
+            size_t mid = (low + high) / 2;
+            size_t midByte = (head_ + mid * recordSize_) % capacityBytes_;
+            ts_t ts;
+            std::memcpy(&ts, &buf_[midByte], kTimestampBytes);
+            if (ts < rangeStart) {
+                low = mid + 1;
+            }
+            else {
+                high = mid;
+            }
+        }
+        size_t firstIdx = low;
+
+        // Count samples in range
+        size_t sampleCount = 0;
+        for (size_t i = firstIdx; i < count_; ++i) {
+            size_t recByte = (head_ + i * recordSize_) % capacityBytes_;
+            ts_t ts;
+            std::memcpy(&ts, &buf_[recByte], kTimestampBytes);
+            if (ts > rangeEnd) break;
+            sampleCount++;
+        }
+
+        // Safety cap
+        if (maxPoints > 0 && sampleCount > maxPoints) {
+            plotWidthPx = maxPoints / 2; // each bin produces up to 2 points
+        }
+
+        // Auto-switch: raw mode if fewer samples than pixels
+        if (plotWidthPx == 0 || sampleCount <= plotWidthPx) {
+            for (size_t i = firstIdx; i < count_; ++i) {
+                size_t recByte = (head_ + i * recordSize_) % capacityBytes_;
+                ts_t ts;
+                std::memcpy(&ts, &buf_[recByte], kTimestampBytes);
+                if (ts > rangeEnd) break;
+
+                mpd.xs.push_back(static_cast<double>(ts) / 1e9);
+                const std::byte* payload = &buf_[recByte] + kTimestampBytes;
+                extractor(payload, mpd.ys);
+            }
+            return mpd;
+        }
+
+        // Binning mode
+        ts_t binSizeNs = (rangeEnd - rangeStart) / plotWidthPx;
+        ts_t alignedStart = (rangeStart / binSizeNs) * binSizeNs; // snap to pixel boundary
+        ts_t binStart = alignedStart;
+        ts_t binEnd = binStart + binSizeNs;
+
+        std::vector<double> minVals(numSignals);
+        std::vector<double> maxVals(numSignals);
+        ts_t minTs = 0, maxTs = 0;
+        bool binHasData = false;
+
+        // Pre-allocated tempYs for one sample
+        std::vector<std::vector<double>> tempYs(numSignals);
+        for (auto& v : tempYs) v.reserve(1); // reserve space for one value per signal
+
+        auto pushPoint = [&](ts_t pointTs, const std::vector<double>& vals) {
+            mpd.xs.push_back(static_cast<double>(pointTs) / 1e9);
+            for (size_t s = 0; s < numSignals; ++s) {
+                mpd.ys[s].push_back(vals[s]);
+            }
+            };
+
+        for (size_t i = firstIdx; i < count_; ++i) {
+            size_t recByte = (head_ + i * recordSize_) % capacityBytes_;
+            ts_t ts;
+            std::memcpy(&ts, &buf_[recByte], kTimestampBytes);
+            if (ts > rangeEnd) break;
+
+            const std::byte* payload = &buf_[recByte] + kTimestampBytes;
+
+            // Clear tempYs for reuse
+            for (auto& v : tempYs) v.clear();
+
+            // Extract one sample's values into tempYs
+            extractor(payload, tempYs);
+
+            // Copy values into flat vector<double>
+            std::vector<double> values(numSignals);
+            for (size_t s = 0; s < numSignals; ++s) {
+                values[s] = tempYs[s].back();
+            }
+
+            if (!binHasData) {
+                minVals = values;
+                maxVals = values;
+                minTs = ts;
+                maxTs = ts;
+                binHasData = true;
+            }
+            else {
+                for (size_t s = 0; s < numSignals; ++s) {
+                    if (values[s] < minVals[s]) { minVals[s] = values[s]; minTs = ts; }
+                    if (values[s] > maxVals[s]) { maxVals[s] = values[s]; maxTs = ts; }
+                }
+            }
+
+            if (ts >= binEnd) {
+                if (binHasData) {
+                    if (minTs <= maxTs) {
+                        pushPoint(minTs, minVals);
+                        pushPoint(maxTs, maxVals);
+                    }
+                    else {
+                        pushPoint(maxTs, maxVals);
+                        pushPoint(minTs, minVals);
+                    }
+                }
+                // Next bin
+                binStart = binEnd;
+                binEnd += binSizeNs;
+                binHasData = false;
+            }
+        }
+
+        // Flush last bin
+        if (binHasData) {
+            if (minTs <= maxTs) {
+                pushPoint(minTs, minVals);
+                pushPoint(maxTs, maxVals);
+            }
+            else {
+                pushPoint(maxTs, maxVals);
+                pushPoint(minTs, minVals);
+            }
+        }
+
+        return mpd;
+    }
+
+    template<typename ExtractorFn>
     MultiPlotData latest_multi_plot_data(size_t n, size_t numSignals, ExtractorFn extractor) const {
         MultiPlotData mpd;
         mpd.ys.resize(numSignals); // always have numSignals inner vectors

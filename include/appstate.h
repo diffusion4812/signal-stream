@@ -1,13 +1,13 @@
 #pragma once
 
-#include "spdlog/spdlog.h"
 #include <boost/asio.hpp>
-#include "projectenvironment.h"
+#include "service-project.h"
 #include "window.h"
 
 class ServiceBus;
 class Console;
 class WindowManager;
+class Logger;
 class Schema;
 struct SDL_Thread;
 
@@ -15,7 +15,7 @@ struct AppState {
     std::unique_ptr<ServiceBus> bus;
     std::unique_ptr<ProjectManager> pm;
     std::unique_ptr<WindowManager> wm;
-    std::shared_ptr<spdlog::logger> log;
+    std::unique_ptr<Logger> log;
 
     Console* console;
     bool consoleIsOpen;
