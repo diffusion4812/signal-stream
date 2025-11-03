@@ -7,16 +7,18 @@ class WindowManager;
 
 struct IWindow {
     virtual ~IWindow() = default;
-    virtual void Render(WindowManager& wm) = 0;
+    virtual void Render() = 0;
+    virtual const std::string& GetId() const = 0;
+    virtual void SetId(const std::string& id) = 0;
     virtual bool ShouldRemove() = 0;
 };
 
 template<typename Derived>
 class WindowCRTP : public IWindow {
 public:
-    void Render(WindowManager& wm) {
+    void Render() {
         setFullscreen();
-        static_cast<Derived*>(this)->OnRender(wm);
+        static_cast<Derived*>(this)->OnRender();
     }
 
     void SetRemove() {
@@ -27,10 +29,13 @@ public:
         return shouldremove_;
     }
 
+    const std::string& GetId() const { return id_; }
+    void SetId(const std::string& id) { id_ = id; }
+
 private:
     void setFullscreen() {
-        ImGuiIO& io = ImGui::GetIO();
-        ImGuiViewport* vp = ImGui::GetMainViewport();
+        const ImGuiIO& io = ImGui::GetIO();
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
         if (fullscreen_) {
             ImGui::SetNextWindowPos(vp->Pos);
             ImGui::SetNextWindowSize(vp->Size);
@@ -41,4 +46,5 @@ private:
 protected:
     bool fullscreen_ = false;
     bool shouldremove_ = false;
+    std::string id_ = "";
 };

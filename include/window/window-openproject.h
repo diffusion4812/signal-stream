@@ -7,7 +7,7 @@ public:
     Window_OpenProject() {
     }
 
-    void OnRender(WindowManager& wm) {
+    void OnRender() {
         if (ImGui::Begin("Project Name")) {
 
         }

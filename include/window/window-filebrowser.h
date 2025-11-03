@@ -23,7 +23,7 @@ public:
         dialog_.Open();
     }
 
-    void OnRender(WindowManager& wm) {
+    void OnRender() {
         dialog_.Display();
         if (dialog_.HasSelected()) {
             auto selectedPath = dialog_.GetSelected().string();
@@ -39,7 +39,7 @@ public:
                 return; // project already opened
             }
             state_->pm = std::make_unique<ProjectManager>(*state_->bus.get(), selectedPath, autostart_, *(state_->io_context));
-            wm.openWindowByType("window-signalbrowser");
+            state_->bus->Publish<WindowManager::Event>(WindowManager::Event{ WindowManager::Event::Type::OpenWindow, "window-signalbrowser", {} });
             dialog_.Close();
         }
         if (!dialog_.IsOpened()) SetRemove();

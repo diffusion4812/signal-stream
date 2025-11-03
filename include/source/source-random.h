@@ -92,6 +92,9 @@ protected:
             std::vector<std::byte>(reinterpret_cast<std::byte*>(
                 instance.get_data()),
                 reinterpret_cast<std::byte*>(instance.get_data()) + schema_.value().instance_size())));
+
+        std::unique_lock<std::mutex> lk(mtx_);
+        cv_.wait_for(lk, std::chrono::milliseconds(20), [this] { return !running_.load(); });
     }
 
 private:

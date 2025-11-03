@@ -9,7 +9,7 @@ public:
         CSVFile_ = csvFile;
     }
 
-    void OnRender(WindowManager& wm) {
+    void OnRender() {
         // --- ImPlot CSV Plotting ---
         if (CSVFile_->fileIsRead && CSVFile_->parsedCsv->GetColumnCount() > 1) {
             ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);

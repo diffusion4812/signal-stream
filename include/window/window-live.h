@@ -42,7 +42,7 @@ public:
         style.UseLocalTime = true;
     }
 
-    void OnRender(WindowManager& wm) {
+    void OnRender() {
         if (ImGui::Begin("Live Window")) {
             for (auto& source : sources_) {
                 StreamBuffer::MultiPlotData plotData = source.second.handle->buf->range_multi_plot_data(
@@ -58,7 +58,12 @@ public:
                                 ys[i].push_back(static_cast<double>(instance_.get<int32_t>(signal.name).value()));
                                 break;
                             case Kind::Float:
-                                ys[i].push_back(static_cast<double>(instance_.get<float>(signal.name).value()));
+                                if (ys[i].size() == 1) {
+                                    ys[i][0] = static_cast<double>(instance_.get<float>(signal.name).value()); // overwrite mode
+                                }
+                                else {
+                                    ys[i].push_back(static_cast<double>(instance_.get<float>(signal.name).value())); // raw mode
+                                }
                                 break;
                             }
                         }
@@ -67,16 +72,23 @@ public:
                     5000
                 );
 
-                ImPlot::BeginPlot(source.first.c_str());
-                ImPlot::SetupAxis(ImAxis_X1, "Time", ImPlotAxisFlags_ScrollMin);
+                linked_max_ = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count()) / 1e9;
+                linked_min_ = linked_max_ - duration_; // Show last 60 seconds
+
+                ImPlot::BeginPlot(source.first.c_str(), ImVec2(-1, -1));
+                ImPlot::SetupAxis(ImAxis_X1, "Time");
                 ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
                 ImPlot::SetupAxis(ImAxis_Y1, "");
                 ImPlot::SetupAxis(ImAxis_Y2, "");
+                ImPlot::SetupAxisLinks(ImAxis_X1, &linked_min_, &linked_max_);
 
                 for (size_t i = 0; i < source.second.signals.size(); ++i) {
                     ImPlot::SetAxis(source.second.signals[i].axis);
                     ImPlot::PlotLine(source.second.signals[i].name.c_str(), plotData.xs.data(), plotData.ys[i].data(), plotData.xs.size());
                 }
+
+                ImPlotRect plot_limits = ImPlot::GetPlotLimits(ImAxis_X1, -1);
+                duration_ = plot_limits.X.Max - plot_limits.X.Min;
 
                 ImPlot::EndPlot();
 
@@ -116,4 +128,6 @@ private:
     ProjectManager& pm_;
     const Schema& schema_;
     Instance instance_;
+
+    double linked_min_, linked_max_, duration_ = 60.0;
 };

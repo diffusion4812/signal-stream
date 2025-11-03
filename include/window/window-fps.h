@@ -5,7 +5,7 @@
 class Window_FPS : public WindowCRTP<Window_FPS> {
 public:
     Window_FPS(double* fps) : fps_(fps) {}
-    void OnRender(WindowManager& wm) {
+    void OnRender() {
         if (ImGui::Begin("FPS")) {
             ImGui::Text("%.2f", *fps_);
         }

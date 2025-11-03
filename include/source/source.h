@@ -186,12 +186,12 @@ private:
     ServiceBus& bus_;
     Event lastEvent_;
 
-    std::atomic<bool> running_;
     std::jthread worker_;
-    std::mutex mtx_;
-    std::condition_variable cv_;
     std::atomic<SourceStatus> status_;
 
 protected:
     ProducerToken token_;
+    std::atomic<bool> running_;
+    std::mutex mtx_;
+    std::condition_variable cv_;
 };

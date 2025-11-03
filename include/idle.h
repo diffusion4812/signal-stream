@@ -2,9 +2,9 @@
 
 #include "appstate.h"
 
-static const uint64_t idleThresholdNS = 3000000000;
+static const uint64_t idleThresholdNS = 30 * 1E9;
 static const uint64_t minFrameTimeNS = 2000000; // 2ms minimum frame time to avoid busy-waiting
-static const double activeFPS = 60.0;
+static const double activeFPS = 200.0;
 static const double idleFPS = 5.0;
 
 inline void NotifyUserInput(void* userdata)

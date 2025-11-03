@@ -128,6 +128,39 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
 
+    // ---------------------------
+    // Load Roboto Regular font
+    // ---------------------------
+    try {
+        ImGuiIO& io = ImGui::GetIO(); // get ImGui IO
+        const std::string font_path = "Roboto-Regular.ttf"; // adjust as needed
+        const float base_font_size = 16.0f;
+        // clamp main_scale to sensible range before computing size
+        const float clamped_scale = std::clamp(main_scale, 0.5f, 3.0f);
+        const float font_size = base_font_size * clamped_scale;
+
+        if (!std::filesystem::is_regular_file(font_path)) {
+            state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Warning, std::format("Font file not found: {}", font_path).c_str() });
+            // fallback: keep default ImGui font (io.FontDefault remains unchanged)
+        }
+        else {
+            ImFont* roboto = io.Fonts->AddFontFromFileTTF(font_path.c_str(), font_size);
+            if (roboto) {
+                io.FontDefault = roboto;
+                state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Info, std::format("Font loaded: {} (size {})", font_path, font_size).c_str() });
+                // Do NOT call io.Fonts->Build() here unless your renderer backend requires it
+                // Most backends will build/upload the atlas during their Init or when first rendering.
+            }
+            else {
+                state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Error, std::format("Failed to load font from {} (requested size {})", font_path, font_size).c_str() });
+                // Optional: attempt a secondary fallback font or keep default ImGui font
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Debug, std::format("Exception while loading font: {})", e.what()).c_str() });
+    }
+
     // Setup Platform/Renderer backends
     ImGui_ImplSDL3_InitForSDLGPU(window);
     ImGui_ImplSDLGPU3_InitInfo init_info = {};
@@ -193,7 +226,7 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open Project")) {
-                state->wm->openWindowByType("window-filebrowser");
+                state->bus->Publish<WindowManager::Event>(WindowManager::Event{ WindowManager::Event::Type::OpenWindow, "window-filebrowser", {} });
             }
             if (ImGui::MenuItem("Open asdasdroject")) {
             }
@@ -216,7 +249,7 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
         ImGui::EndMainMenuBar();
     }
 
-    state->wm->renderAll();
+    state->wm->RenderAll();
 
     if (state->show_metrics_window) {
         ImGui::ShowMetricsWindow(&state->show_metrics_window);

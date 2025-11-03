@@ -5,12 +5,14 @@
 #include "service-project.h"
 #include "imshape.h"
 
-class Window_SignalBrowser : public WindowCRTP<Window_SignalBrowser>{
+class Window_SignalBrowser : public WindowCRTP<Window_SignalBrowser> {
 public:
-    Window_SignalBrowser(ProjectManager* project) : pm_(project) {
+    Window_SignalBrowser(WindowManager* wm, ProjectManager* pm) :
+        wm_(wm),
+        pm_(pm) {
     }
 
-    void OnRender(WindowManager& wm) {
+    void OnRender() {
         if (ImGui::Begin(pm_->GetName().c_str())) {
             ImVec4 statusColor(0.7f, 0.7f, 0.7f, 1.0f);
             std::string statusText;
@@ -122,13 +124,17 @@ public:
 
                             // Handle double clicks
                             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                                wm.openWindowByType("window-live", std::any(Window_Live::Payload{
-                                    *pm_,
-                                    std::string(source.name),
-                                    source.schema,
-                                    field.name,
-                                    field.kind
-                                    }));
+                                wm_->Publish(WindowManager::Event {
+                                            WindowManager::Event::Type::OpenWindow,
+                                            "window-live",
+                                            Window_Live::Payload{
+                                                *pm_,
+                                                std::string(source.name),
+                                                source.schema,
+                                                field.name,
+                                                field.kind
+                                            }
+                                    });
                             }
 
                             // Drag-drop source
@@ -157,6 +163,7 @@ public:
     }
 
 private:
+    WindowManager* wm_;
     ProjectManager* pm_;
 
     enum HealthStatus {
