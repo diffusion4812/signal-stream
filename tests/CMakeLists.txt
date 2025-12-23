@@ -7,6 +7,8 @@ add_executable(project_test
     project_test.cpp
 )
 add_executable(storage_test
+    ../source/service-storage.cpp
+    ../source/schema.cpp
     storage_test.cpp
 )
 add_executable(expression_test
@@ -21,9 +23,32 @@ if(MSVC)
 endif()
 
 link_directories(C:/Users/LOAR02/Source/Libraries/googletest)
+
 target_link_libraries(project_test PRIVATE gtest_main)
-target_link_libraries(storage_test PRIVATE gtest_main)
+
+target_link_libraries(storage_test PRIVATE
+	gtest_main
+    $<$<CONFIG:Debug>:arrow.lib>
+    $<$<CONFIG:Debug>:parquet.lib>
+    $<$<CONFIG:Release>:arrow.lib>
+    $<$<CONFIG:Release>:parquet.lib>
+)
+
 target_link_libraries(expression_test PRIVATE gtest_main)
+
+# Copy correct DLLs after build
+add_custom_command(TARGET storage_test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<$<CONFIG:Debug>:${ARROW_DEBUG_ROOT}/bin/arrow.dll>
+        $<$<CONFIG:Release>:${ARROW_RELEASE_ROOT}/bin/arrow.dll>
+        $<TARGET_FILE_DIR:storage_test>
+)
+add_custom_command(TARGET storage_test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<$<CONFIG:Debug>:${ARROW_DEBUG_ROOT}/bin/parquet.dll>
+        $<$<CONFIG:Release>:${ARROW_RELEASE_ROOT}/bin/parquet.dll>
+        $<TARGET_FILE_DIR:storage_test>
+)
 
 include(GoogleTest)
 gtest_discover_tests(project_test)

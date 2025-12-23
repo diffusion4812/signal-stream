@@ -26,16 +26,21 @@ const char* kindToString(Kind k);
 struct FieldDesc {
     std::string name;
     Kind kind;
-    std::size_t offset;
-    std::size_t size;
-    std::size_t align;
+	std::size_t offset; // Offset within instance
+	std::size_t size;   // Size in bytes
+	std::size_t align;  // Alignment in bytes
+    size_t idx; // Field index for fast lookups
 };
 
 class Schema {
 public:
+    Schema() {
+		add_field("_timestamp", Kind::Int64); // reserve timestamp field
+    }
+
     void add_field(std::string name, Kind k) {
         if (finalised_) throw std::logic_error("Schema already finalised");
-        fields_.push_back({ std::move(name), k, 0, size_of(k), align_of(k) });
+        fields_.push_back({ std::move(name), k, 0, size_of(k), align_of(k), fields_.size() });
     }
 
     std::vector<FieldDesc> get_fields() const {
@@ -86,7 +91,7 @@ private:
         case Kind::String: return sizeof(char*); // store pointer
         case Kind::Blob:   return sizeof(void*); // store pointer
         }
-        return 1;
+		throw std::runtime_error("Unknown Kind");
     }
     static std::size_t align_of(Kind k) {
         switch (k) {
@@ -97,7 +102,7 @@ private:
         case Kind::String: return alignof(char*);
         case Kind::Blob:   return alignof(void*);
         }
-        return 1;
+        throw std::runtime_error("Unknown Kind");
     }
     static std::size_t align_up(std::size_t off, std::size_t a) { return (off + a - 1) & ~(a - 1); }
 };

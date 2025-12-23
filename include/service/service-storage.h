@@ -28,31 +28,26 @@ struct StorageBackend {
     virtual bool write_batch(const std::string& streamId, const std::vector<std::byte>& batch) = 0;
 };
 
-// Null backend (no-op)
-struct NullBackend : public StorageBackend {
-    bool write_batch(const std::string& streamId, const std::vector<std::byte>& batch) {
-        return true;
-    }
-};
+#include "service-storage-backend-null.h"
+#include "service-storage-backend-parquet.h"
 
 // Stream configuration options
 struct StreamStorageOptions {
-    // capacity expressed in number of bytes for the ring buffer backing this stream
-    size_t capacity = 1 * 8 * 1024;
+    // capacity expressed in number of records for the buffer backing the stream
+    size_t capacity_records = 1000;
     // flush batch size expressed in number of records
-    size_t flush_batch_size = 128;
+    size_t flush_batch_size = 1;
     // timer interval used by timer_loop (not strictly required if you set 0)
-    std::chrono::milliseconds flush_interval{ 1000 };
+    std::chrono::milliseconds flush_interval{ 0 };
 };
 
 struct StorageStreamHolder {
     std::shared_ptr<StreamBuffer> buffer; // shared ownership for consumers
+	Schema schema;       // stream schema
     SourceOptions opts;
-    size_t recordSizeBytes;
-    SourceMetadata metadata;
 
-    StorageStreamHolder(std::shared_ptr<StreamBuffer> buf, SourceOptions o, size_t rs)
-        : buffer(std::move(buf)), opts(std::move(o)), recordSizeBytes(rs) {
+    StorageStreamHolder(std::shared_ptr<StreamBuffer> buf, Schema s, SourceOptions o)
+        : buffer(std::move(buf)), schema(std::move(s)), opts(std::move(o)) {
     }
 
     StorageStreamHolder(const StorageStreamHolder&) = delete;
@@ -62,7 +57,7 @@ struct StorageStreamHolder {
 };
 
 // Result codes for submit
-enum class SubmitResult { Accepted, Backpressure, InvalidPayloadSize, UnknownStream };
+enum class SubmitResult { Accepted, BackPressure, InvalidPayloadSize, UnknownStream };
 
 // Forward
 class StorageManager;
@@ -151,7 +146,7 @@ public:
         flushers_.clear();
 
         if (flush_all) {
-            force_flush_all();
+            //force_flush_all();
         }
 
         running_ = false;
@@ -160,12 +155,7 @@ public:
     void handle_registry_event(SourceRegistry::Event::Type type, const std::string& streamId, const SourceMetadata& meta) {
         if (type == SourceRegistry::Event::Type::Created) {
             StreamStorageOptions opts;
-            opts.capacity = 8 * 1024 * 1024; // Example: 8 KB buffer
-            opts.flush_batch_size = 128;
-            opts.flush_interval = std::chrono::milliseconds(1000);
-
-            size_t userRecordSize = meta.schema.instance_size(); // Get user record size directly from the schema
-            create_stream(streamId, opts, userRecordSize);
+            create_stream(streamId, opts, meta.schema);
         }
         else if (type == SourceRegistry::Event::Type::Deleted) {
             remove_stream(streamId);
@@ -179,20 +169,27 @@ public:
         }
     }
 
-    bool create_stream(const std::string& streamId, const StreamStorageOptions& opts, size_t userRecordSize) {
-        constexpr size_t ts_bytes = sizeof(ts_t);
-        size_t recordSize = ts_bytes + userRecordSize;
-
-        std::scoped_lock<std::mutex> lk(streamsMtx_);
+    bool create_stream(const std::string& streamId,
+        const StreamStorageOptions& opts,
+        const Schema& s)
+    {
+        std::scoped_lock lk(streamsMtx_);
         if (streams_.contains(streamId)) {
-            return true; // already exists: no-op
+            return true; // already exists
         }
-        auto buf = std::make_unique<StreamBuffer>(opts.capacity, recordSize);
+
+        // Create the StreamBuffer with schema + capacity
+        auto buf = std::make_unique<StreamBuffer>(s, opts.capacity_records);
+
+        // recordSizeBytes := total bytes per record as defined by your Schema
+        size_t recordSize = s.instance_size();
+
         streams_.emplace(
             std::piecewise_construct,
-            std::forward_as_tuple(streamId),
-            std::forward_as_tuple(std::move(buf), opts, recordSize)
+            std::forward_as_tuple(streamId),                          // Key (std::string)
+            std::forward_as_tuple(std::move(buf), opts, recordSize)   // Value ctor args
         );
+
         return true;
     }
 
@@ -202,7 +199,7 @@ public:
         if (it == streams_.end()) {
             return true; // already removed: no-op
         }
-        force_flush(streamId);
+        //force_flush(streamId);
         streams_.erase(it);
         return true;
     }
@@ -218,29 +215,9 @@ public:
         StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return SubmitResult::UnknownStream;
 
-        size_t recordSize = holder->buffer->record_size();
-        constexpr size_t ts_bytes = sizeof(ts_t);
-        size_t userRecordSize = recordSize - ts_bytes;
-
-        if (userPayload.size() != userRecordSize) { // TODO: Allow submission of batches
-            return SubmitResult::InvalidPayloadSize;
-        }
-
-        // Build record with timestamp prefix
-        std::vector<std::byte> record;
-        record.resize(recordSize);
-        
-        // Compute and add timestamp
-        ts_t ts = currentTimeNs();
-        std::memcpy(record.data(), &ts, ts_bytes);
-
-        // copy payload after timestamp prefix
-        std::memcpy(record.data() + ts_bytes, userPayload.data(), userRecordSize);
-
-        // move into StreamBuffer
-        size_t appended = holder->buffer->append_batch(std::move(record));
-        if (appended == 0) {
-            return SubmitResult::Backpressure;
+        auto res = holder->buffer->append(std::move(userPayload));
+        if (!res.full_success()) {
+            return SubmitResult::BackPressure;
         }
 
         return SubmitResult::Accepted;
@@ -248,7 +225,7 @@ public:
 
     // Reader APIs (for UI / archiver)
     // latest returns contiguous bytes, newest-first (each record is recordSizeBytes)
-    std::vector<std::byte> get_latest_bytes(const std::string& streamId, size_t n) const {
+    /*std::vector<std::byte> get_latest_bytes(const std::string& streamId, size_t n) const {
         StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return {};
         return holder->buffer->latest(n);
@@ -269,7 +246,7 @@ public:
     }
 
     // Persistence control
-    bool force_flush(const std::string& streamId, std::chrono::milliseconds /*timeout*/ = std::chrono::milliseconds(5000)) {
+    bool force_flush(const std::string& streamId, std::chrono::milliseconds = std::chrono::milliseconds(5000)) {
         StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return false;
         while (true) {
@@ -282,7 +259,7 @@ public:
         return true;
     }
 
-    bool force_flush_all(std::chrono::milliseconds /*timeout*/ = std::chrono::milliseconds(10000)) {
+    bool force_flush_all(std::chrono::milliseconds = std::chrono::milliseconds(10000)) {
         std::vector<std::string> ids;
         {
             std::lock_guard<std::mutex> lk(streamsMtx_);
@@ -294,15 +271,14 @@ public:
             if (!force_flush(id)) ok = false;
         }
         return ok;
-    }
+    }*/
 
-    // Observability
     size_t stream_count() const {
         std::scoped_lock lk(streamsMtx_);
         return streams_.size();
     }
 
-    std::optional<size_t> stream_size(const std::string& servicename) const {
+   std::optional<size_t> stream_size(const std::string& servicename) const {
         StorageStreamHolder* holder = get_holder(servicename);
         if (!holder) return std::nullopt;
         return holder->buffer->size();
@@ -318,11 +294,11 @@ public:
         return StreamBufferHandle{ it->second.buffer.get() };
     }
 
-    std::optional<float> GetBufferHealth(const std::string& servicename) const {
+    /*std::optional<float> GetBufferHealth(const std::string& servicename) const {
         StorageStreamHolder* holder = get_holder(servicename);
         if (!holder) return std::nullopt;
         return static_cast<float>(holder->buffer->size()) / holder->buffer->capacity_records();
-    }
+    }*/
 
 private:
     struct StorageStreamHolder {

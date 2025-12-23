@@ -8,13 +8,12 @@
 #include <vector>
 #include <unordered_map>
 #include <mutex>
-#include <shared_mutex> // for reader-writer style if desired
+#include <shared_mutex>
 
 #include "schema.h"
 #include "storage-buffer.h"
 #include "service-bus.h"
 
-// Forward declarations / placeholder types (replace with your real types)
 struct SourceMetadata {
     std::string name;
     Schema schema;

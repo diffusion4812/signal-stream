@@ -16,51 +16,265 @@
 #include <deque>
 #include <optional>
 
+#include "schema.h"
+
 // timestamp alias
 using ts_t = std::int64_t;
 
+class ISignalBuffer {
+public:
+    virtual ~ISignalBuffer() = default;
+
+    virtual size_t size() const noexcept = 0;
+    virtual size_t capacity() const noexcept = 0;
+    virtual bool full() const noexcept = 0;
+    virtual bool empty() const noexcept = 0;
+
+    // NEW: Append strided data (for row-major to column-major conversion)
+    virtual size_t append_strided(const std::byte* data, size_t count,
+        size_t stride) = 0;
+
+    virtual void clear() = 0;
+};
+
+template <typename T>
+class SignalBuffer : public ISignalBuffer {
+public:
+    explicit SignalBuffer(size_t capacity)
+        : capacity_(capacity)
+        , head_(0)
+        , tail_(0)
+        , size_(0)
+    {
+        buffer_.resize(capacity_); // Pre-allocate to avoid reallocation
+    }
+
+    // Append with automatic overflow (Overwrite policy)
+    size_t append_strided(const std::byte* data, size_t count,
+        size_t stride) override {
+        return append_strided_internal(data, count, stride, true);
+    }
+
+    // Append without overflow (Reject policy)
+    size_t append_strided_no_overflow(const std::byte* data, size_t count,
+        size_t stride) {
+        return append_strided_internal(data, count, stride, false);
+    }
+
+    size_t size() const noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return size_;
+    }
+
+    size_t capacity() const noexcept override { return capacity_; }
+
+    bool full() const noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return size_ == capacity_;
+    }
+
+    bool empty() const noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return size_ == 0;
+    }
+
+    // Get element at logical index (0 = oldest)
+    std::optional<T> at(size_t index) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (index >= size_) return std::nullopt;
+
+        size_t physical_index = (head_ + index) % capacity_;
+        return buffer_[physical_index];
+    }
+
+    // Clear buffer
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        head_ = 0;
+        tail_ = 0;
+        size_ = 0;
+    }
+
+    // Get head/tail positions (for debugging)
+    size_t head() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return head_;
+    }
+
+    size_t tail() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return tail_;
+    }
+
+private:
+    size_t append_strided_internal(const std::byte* data, size_t count,
+        size_t stride, bool allow_overwrite) {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (count == 0) return 0;
+
+        // For Reject policy: limit count to available space
+        if (!allow_overwrite) {
+            const size_t available = capacity_ - size_;
+            count = std::min(count, available);
+            if (count == 0) return 0;
+        }
+
+        const T* typed_data = reinterpret_cast<const T*>(data);
+        const size_t stride_elements = stride / sizeof(T);
+
+        for (size_t i = 0; i < count; ++i) {
+            buffer_[tail_] = typed_data[i * stride_elements];
+            tail_ = (tail_ + 1) % capacity_;
+
+            if (size_ < capacity_) {
+                ++size_;
+            }
+            else if (allow_overwrite) {
+                // Circular: advance head
+                head_ = (head_ + 1) % capacity_;
+            }
+        }
+
+        return count;
+    }
+
+    size_t capacity_;
+    std::vector<T> buffer_;
+    size_t head_;   // Index of oldest element
+    size_t tail_;   // Index where next element will be written
+    size_t size_;   // Current number of elements
+    mutable std::mutex mutex_;
+};
+
 class StreamBuffer {
 public:
+    enum class OverflowPolicy {
+        Overwrite,  // Circular buffer: overwrite oldest data (default)
+        Reject,     // Reject new data when full, keep oldest data
+        Throw       // Throw exception on overflow attempt
+    };
+
     // capacityRecords: number of records buffer can hold
-    // recordSize: size in bytes of each record (fixed for this buffer)
-    StreamBuffer(size_t capacity_bytes, size_t recordSizeBytes)
-        : recordSize_(recordSizeBytes),
-        capacityBytes_((capacity_bytes / recordSizeBytes)* recordSizeBytes),
-        buf_(capacityBytes_, std::byte{ 0 }),
-        head_(0),
-        tail_(0),
-        count_(0) {
+    StreamBuffer(const Schema& s, size_t c, OverflowPolicy policy = OverflowPolicy::Reject)
+        : schema_(s)
+        , capacity_records_(c)
+        , overflow_policy_(policy)
+    {
+        // Initialize signal buffers for each schema field
+        for (const auto& field : schema_.fields()) {
+            std::unique_ptr<ISignalBuffer> bufPtr;
+
+            switch (field.kind) {
+            case Kind::Int32:
+                bufPtr = std::make_unique<SignalBuffer<int32_t>>(capacity_records_);
+                break;
+
+            case Kind::Int64:
+                bufPtr = std::make_unique<SignalBuffer<int64_t>>(capacity_records_);
+                break;
+
+            case Kind::Float:
+                bufPtr = std::make_unique<SignalBuffer<float>>(capacity_records_);
+                break;
+
+            case Kind::Double:
+                bufPtr = std::make_unique<SignalBuffer<double>>(capacity_records_);
+                break;
+
+            default:
+                throw std::runtime_error("Unsupported field kind in StreamBuffer ctor");
+            }
+
+            // Insert into map: key = field index, value = the new buffer
+            buffers_.emplace(field.idx, std::move(bufPtr));
+        }
     }
 
-    bool append(std::vector<std::byte>&& batch) {
-        if (batch.size() != recordSize_) return false;
+    struct AppendResult {
+        size_t appended;    // Records successfully written to buffer
+        size_t overwritten; // Old records overwritten (Overwrite policy)
+        size_t rejected;    // New records rejected (Reject policy)
+
+        bool had_overflow() const { return overwritten > 0; }
+        bool had_rejection() const { return rejected > 0; }
+        bool full_success() const { return overwritten == 0 && rejected == 0; }
+
+        explicit operator bool() const { return appended > 0; }
+    };
+
+    AppendResult append(std::vector<std::byte>&& batch) {
+        if (batch.empty()) return { 0, 0, 0 };
+
+        const size_t instanceSize = schema_.instance_size();
+        if (batch.size() % instanceSize != 0) return { 0, 0, 0 };
+
+        const size_t recs = batch.size() / instanceSize;
+
         std::lock_guard<std::mutex> lk(mtx_);
-        if (is_full_locked()) return false;
-        write_at(tail_, batch.data(), recordSize_);
-        tail_ = (tail_ + recordSize_) % capacityBytes_;
-        ++count_;
-        return true;
+
+        // Check current buffer state
+        const size_t current_size = buffers_.at(0)->size();
+        const size_t available_space = capacity_records_ - current_size;
+
+        // Determine action based on overflow policy
+        if (recs > available_space) {
+            switch (overflow_policy_) {
+            case OverflowPolicy::Throw: {
+                throw std::runtime_error(
+                    "Buffer overflow: attempted to append " + std::to_string(recs) +
+                    " records but only " + std::to_string(available_space) + " available"
+                );
+            }
+
+            case OverflowPolicy::Reject: {
+                // Only append what fits, reject the rest
+                const size_t to_append = available_space;
+                const size_t rejected = recs - available_space;
+
+                if (to_append == 0) {
+                    return { 0, 0, rejected };
+                }
+
+                // Append partial batch
+                const std::byte* batchPtr = batch.data();
+                for (const auto& field : schema_.fields()) {
+                    auto* bufIface = buffers_.at(field.idx).get();
+                    const std::byte* colStart = batchPtr + field.offset;
+                    bufIface->append_strided(colStart, to_append, instanceSize);
+                }
+
+                return { to_append, 0, rejected };
+            }
+
+            case OverflowPolicy::Overwrite: {
+                // Circular buffer: append all, overwrite oldest
+                const size_t overwritten = recs - available_space;
+
+                const std::byte* batchPtr = batch.data();
+                for (const auto& field : schema_.fields()) {
+                    auto* bufIface = buffers_.at(field.idx).get();
+                    const std::byte* colStart = batchPtr + field.offset;
+                    bufIface->append_strided(colStart, recs, instanceSize);
+                }
+
+                return { recs, overwritten, 0 };
+            }
+            }
+        }
+
+        // No overflow: append normally
+        const std::byte* batchPtr = batch.data();
+        for (const auto& field : schema_.fields()) {
+            auto* bufIface = buffers_.at(field.idx).get();
+            const std::byte* colStart = batchPtr + field.offset;
+            bufIface->append_strided(colStart, recs, instanceSize);
+        }
+
+        return { recs, 0, 0 };
     }
 
-    size_t append_batch(std::vector<std::byte>&& batch) {
-        if (batch.empty()) return 0;
-        if (batch.size() % recordSize_ != 0) return 0;
-        size_t recs = batch.size() / recordSize_;
-
-        std::lock_guard<std::mutex> lk(mtx_);
-        size_t freeRecs = capacity_records_locked() - count_;
-        if (freeRecs == 0) return 0;
-
-        size_t toAppendRecs = std::min(recs, freeRecs);
-        size_t bytesToWrite = toAppendRecs * recordSize_;
-        const std::byte* src = batch.data();
-        write_at(tail_, src, bytesToWrite);
-        tail_ = (tail_ + bytesToWrite) % capacityBytes_;
-        count_ += toAppendRecs;
-        return toAppendRecs;
-    }
-
-    std::vector<std::byte> take_oldest_batch(size_t req_count) {
+    /*std::vector<std::byte> take_oldest_batch(size_t req_count) {
         std::lock_guard<std::mutex> lk(mtx_);
         std::vector<std::byte> out;
         if (req_count == 0 || count_ == 0) return out;
@@ -335,38 +549,33 @@ public:
             extractor(payload, mpd.ys); // fill all signals in one go
         }
         return mpd;
-    }
+    }*/
 
     void clear() {
         std::scoped_lock<std::mutex> lk(mtx_);
-        head_ = 0;
-        tail_ = 0;
-        count_ = 0;
+		buffers_.clear();
     }
 
     size_t size() const {
         std::scoped_lock<std::mutex> lk(mtx_);
-        return count_;
+        return buffers_.at(0)->size();
     }
 
     bool empty() const {
         std::scoped_lock<std::mutex> lk(mtx_);
-        return count_ == 0;
+        return buffers_.at(0)->size() == 0;
     }
 
     bool is_full() const {
         std::scoped_lock<std::mutex> lk(mtx_);
-        return is_full_locked();
+        return buffers_.at(0)->size() >= capacity_records_;
     }
 
-    size_t capacity_records() const {
-        return capacityBytes_ / recordSize_;
-    }
-
-    size_t record_size() const { return recordSize_; }
+    size_t record_size() const { return schema_.instance_size(); }
+    size_t capacity_records() const { return capacity_records_; }
 
 private:
-    void write_at(size_t pos, const std::byte* src, size_t len) {
+    /*void write_at(size_t pos, const std::byte* src, size_t len) {
         size_t first = std::min(len, capacityBytes_ - pos);
         std::memcpy(&buf_[pos], src, first);
         if (first < len) {
@@ -380,18 +589,12 @@ private:
         if (first < len) {
             std::memcpy(dst + first, &buf_[0], len - first);
         }
-    }
-
-    bool is_full_locked() const { return count_ >= capacityBytes_ / recordSize_; }
-    size_t capacity_records_locked() const { return capacityBytes_ / recordSize_; }
+    }*/
 
     mutable std::mutex mtx_;
-    static constexpr size_t kTimestampBytes = sizeof(ts_t);
 
-    const size_t recordSize_;
-    const size_t capacityBytes_;
-    std::vector<std::byte> buf_;
-    size_t head_;
-    size_t tail_;
-    size_t count_;
+    const Schema& schema_;
+    size_t capacity_records_;
+    OverflowPolicy overflow_policy_;
+    std::unordered_map<size_t, std::unique_ptr<ISignalBuffer>> buffers_;
 };

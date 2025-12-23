@@ -23,3 +23,6 @@ target_sources(signal-stream PRIVATE ${LIBS_SRCS})
 
 add_subdirectory(C:/Users/LOAR02/Source/Libraries/spdlog spdlog)
 target_link_libraries(signal-stream spdlog)
+
+add_subdirectory(C:/Users/LOAR02/Source/Libraries/miniparquet/src miniparquet)
+target_link_libraries(signal-stream miniparquet)
