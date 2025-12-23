@@ -23,9 +23,9 @@
 using ts_t = std::int64_t;
 
 // Abstract persistence backend
-struct StorageBackend {
-    virtual ~StorageBackend() = default;
-    virtual bool write_batch(const std::string& streamId, const std::vector<std::byte>& batch) = 0;
+struct IStorageBackend {
+    virtual ~IStorageBackend() = default;
+    virtual bool write_batch_two_pass(const std::string& streamId, const StreamBuffer::BatchChunks& chunks) = 0;
 };
 
 #include "service-storage-backend-null.h"
@@ -111,7 +111,7 @@ struct StreamBufferHandle {
 class StorageManager {
 public:
     // ctor/dtor
-    explicit StorageManager(std::shared_ptr<StorageBackend> backend = std::make_shared<NullBackend>(),
+    explicit StorageManager(std::shared_ptr<IStorageBackend> backend = std::make_shared<NullBackend>(),
         size_t flusherThreads = 1)
         : backend_(std::move(backend)),
         stopFlag_(false),
@@ -199,7 +199,7 @@ public:
         if (it == streams_.end()) {
             return true; // already removed: no-op
         }
-        //force_flush(streamId);
+        //flush_stream(streamId);
         streams_.erase(it);
         return true;
     }
@@ -243,35 +243,30 @@ public:
             return true;
             };
         return holder->buffer->query_if(predicate);
-    }
+    }*/
 
     // Persistence control
-    bool force_flush(const std::string& streamId, std::chrono::milliseconds = std::chrono::milliseconds(5000)) {
+    bool flush_stream(const std::string& streamId) {
         StorageStreamHolder* holder = get_holder(streamId);
         if (!holder) return false;
+
         while (true) {
-            auto batch = holder->buffer->take_oldest_batch(holder->opts.flush_batch_size);
-            if (batch.empty()) break;
-            if (!backend_->write_batch(streamId, batch)) {
+            // Get zero-copy view into ring buffer
+            StreamBuffer::BatchChunks chunks = holder->buffer->get_batch_chunks(holder->opts.flush_batch_size);
+
+            if (chunks.total_count == 0) break;
+
+            // Write immediately while pointers are valid
+            if (!backend_->write_batch_two_pass(streamId, chunks)) {
                 return false;
             }
+
+            // Consume only after successful write
+            holder->buffer->consume_batch(chunks.total_count);
         }
+
         return true;
     }
-
-    bool force_flush_all(std::chrono::milliseconds = std::chrono::milliseconds(10000)) {
-        std::vector<std::string> ids;
-        {
-            std::lock_guard<std::mutex> lk(streamsMtx_);
-            ids.reserve(streams_.size());
-            for (const auto& kv : streams_) ids.push_back(kv.first);
-        }
-        bool ok = true;
-        for (const auto& id : ids) {
-            if (!force_flush(id)) ok = false;
-        }
-        return ok;
-    }*/
 
     size_t stream_count() const {
         std::scoped_lock lk(streamsMtx_);
@@ -294,28 +289,22 @@ public:
         return StreamBufferHandle{ it->second.buffer.get() };
     }
 
-    /*std::optional<float> GetBufferHealth(const std::string& servicename) const {
+    std::optional<float> GetBufferHealth(const std::string& servicename) const {
         StorageStreamHolder* holder = get_holder(servicename);
         if (!holder) return std::nullopt;
         return static_cast<float>(holder->buffer->size()) / holder->buffer->capacity_records();
-    }*/
+    }
 
 private:
     struct StorageStreamHolder {
-        std::unique_ptr<StreamBuffer> buffer; // byte-based ring buffer
+        std::unique_ptr<StreamBuffer> buffer;
         StreamStorageOptions opts;
-        size_t recordSizeBytes;
         std::atomic<uint64_t> nextSeq{ 0 }; // per-stream monotonic seq (optional)
 
         // Explicit constructor to allow in-place construction inside unordered_map
         StorageStreamHolder(std::unique_ptr<StreamBuffer> buf, StreamStorageOptions o, size_t rs)
-            : buffer(std::move(buf)), opts(std::move(o)), recordSizeBytes(rs), nextSeq(0) {
+            : buffer(std::move(buf)), opts(std::move(o)), nextSeq(0) {
         }
-    };
-
-    struct BatchItem {
-        std::string streamId;
-        std::vector<std::byte> batch; // contiguous records
     };
 
     StorageStreamHolder* get_holder(const std::string& streamId) const {
@@ -324,13 +313,14 @@ private:
         return (it == streams_.end()) ? nullptr : const_cast<StorageStreamHolder*>(&it->second);
     }
 
-    // Enqueue batch for background flush
-    void enqueue_batch(const std::string& streamId, std::vector<std::byte>&& batch) {
-        {
-            std::scoped_lock<std::mutex> lk(queueMtx_);
-            batchQueue_.emplace_back(BatchItem{ streamId, std::move(batch) });
+    bool write_accumulated_batches(const std::string& streamId,
+        const std::vector<StreamBuffer::BatchChunks>& chunks) {
+        for (const auto& chunk : chunks) {
+            if (!backend_->write_batch_two_pass(streamId, chunk)) {
+                return false;
+            }
         }
-        cv_.notify_one();
+        return true;
     }
 
     static ts_t currentTimeNs() {
@@ -339,7 +329,7 @@ private:
                 std::chrono::system_clock::now().time_since_epoch()).count());
     }
 
-    std::shared_ptr<StorageBackend> backend_;
+    std::shared_ptr<IStorageBackend> backend_;
     size_t queueCapacity_;
     std::atomic<bool> stopFlag_;
     size_t flusherThreads_;
@@ -347,7 +337,6 @@ private:
     mutable std::mutex streamsMtx_;
     std::unordered_map<std::string, StorageStreamHolder> streams_; // per-stream buffers and options
     std::mutex queueMtx_;
-    std::deque<BatchItem> batchQueue_; // batches awaiting flush
     std::vector<std::thread> flushers_; // background flusher threads
     std::thread timerThread_; // optional timer to trigger small flushes
     std::mutex lifecycleMtx_;

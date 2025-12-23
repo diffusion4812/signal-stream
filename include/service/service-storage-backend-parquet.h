@@ -11,7 +11,7 @@
 
 #define timestamp_field_name "timestamp"
 
-struct ParquetBackend : public StorageBackend {
+struct ParquetBackend : public IStorageBackend {
     explicit ParquetBackend(const std::filesystem::path& basePath, const Schema& schema)
         : basePath_(basePath), schema_(schema) { // Copy schema
         if (!std::filesystem::exists(basePath_)) {
@@ -31,62 +31,82 @@ struct ParquetBackend : public StorageBackend {
 		}
     }
 
-    bool write_batch(const std::string& streamId, const std::vector<std::byte>& batch) override {
+    bool write_batch_two_pass(const std::string& streamId,
+        const StreamBuffer::BatchChunks& chunks) {
         std::lock_guard<std::mutex> lock(mtx_);
 
-		Instance instance(schema_);
-        const std::byte* payload_ptr = batch.data() + 8;
-        instance.set_data(payload_ptr);
+        if (chunks.total_count == 0) return true;
 
-		// Append timestamp
-		int64_t timestamp = *reinterpret_cast<const int64_t*>(batch.data());
-		auto builder = std::static_pointer_cast<arrow::Int64Builder>(builders_[timestamp_field_name].builder);
-		PARQUET_THROW_NOT_OK(builder->Append(timestamp));
+        // Create Arrow array from contiguous chunk (created by SignalBuffer)
+        auto create_arrow_array = [](const ISignalBuffer::ContiguousChunk& chunk)
+            -> std::shared_ptr<arrow::Array> {
 
-        for (auto& field : schema_.fields()) {
-            switch (field.kind) {
-            case Kind::Int32: {
-                int32_t value = instance.get<int32_t>(field.name).value_or(0);
-                auto builder = std::static_pointer_cast<arrow::Int32Builder>(builders_[field.name].builder);
-                PARQUET_THROW_NOT_OK(builder->Append(value));
-                break;
-            }
-            case Kind::Int64: {
-                int64_t value = instance.get<int64_t>(field.name).value_or(0);
-                auto builder = std::static_pointer_cast<arrow::Int64Builder>(builders_[field.name].builder);
-                PARQUET_THROW_NOT_OK(builder->Append(value));
-                break;
-            }
-            case Kind::Float: { // float32
-                float value = instance.get<float>(field.name).value_or(0.0);
-                auto builder = std::static_pointer_cast<arrow::FloatBuilder>(builders_[field.name].builder);
-                PARQUET_THROW_NOT_OK(builder->Append(value));
-                break;
-            }
-            case Kind::Double: { // float64
-                double value = instance.get<double>(field.name).value_or(0.0);
-                auto builder = std::static_pointer_cast<arrow::DoubleBuilder>(builders_[field.name].builder);
-                PARQUET_THROW_NOT_OK(builder->Append(value));
-                break;
-            }
+            auto buffer = arrow::Buffer::Wrap(reinterpret_cast<const std::uint8_t*>(chunk.data), chunk.size_bytes());
+
+            switch (chunk.kind) {
+            case Kind::Int32:
+                return std::make_shared<arrow::Int32Array>(
+                    chunk.count,          // length
+                    buffer,               // data buffer
+                    nullptr,              // null bitmap (none)
+                    0                     // null count
+                );
+            case Kind::Int64:
+                return std::make_shared<arrow::Int64Array>(chunk.count, buffer, nullptr, 0);
+            case Kind::Float:
+                return std::make_shared<arrow::FloatArray>(chunk.count, buffer, nullptr, 0);
+            case Kind::Double:
+                return std::make_shared<arrow::DoubleArray>(chunk.count, buffer, nullptr, 0);
             default:
-                throw std::runtime_error("Unsupported Kind: " + std::string(kindToString(field.kind)));
+                throw std::runtime_error("Unsupported type");
             }
+        };
+
+        // PASS 1: Write first contiguous chunk
+        {
+            std::vector<std::shared_ptr<arrow::Array>> arrays;
+            arrays.reserve(chunks.first_chunk.size()); // Reserve space for all columns (fields in the schema)
+
+            // Data columns (maintain schema order)
+            for (const auto& field : schema_.fields()) {
+                auto first_chunk = chunks.first_chunk.at(field.idx); // Locate fields through index
+                if (!first_chunk.is_valid) {
+                    throw std::runtime_error("Missing field in first chunk: " + field.name);
+                }
+				arrays.push_back(create_arrow_array(first_chunk));
+            }
+
+            auto batch1 = arrow::RecordBatch::Make(
+                arrowSchema_,
+                chunks.first_chunk.begin()->second.count,
+                arrays
+            );
+
+            PARQUET_THROW_NOT_OK(filewriter_->WriteRecordBatch(*batch1));
         }
 
-        // Finish arrays
-        std::vector<std::shared_ptr<arrow::Array>> arrays;
-        arrays.reserve(builders_.size());
-        for (auto& [name, sb] : builders_) {
-            std::shared_ptr<arrow::Array> arr;
-            PARQUET_THROW_NOT_OK(sb.builder->Finish(&arr));
-            arrays.push_back(arr);
+        // PASS 2: Write wrapped chunk if present
+        if (chunks.has_wrap()) {
+            std::vector<std::shared_ptr<arrow::Array>> arrays;
+            arrays.reserve(chunks.second_chunk.size());
+
+            // Data columns (maintain schema order)
+            for (const auto& field : schema_.fields()) {
+                auto second_chunk = chunks.second_chunk.at(field.idx); // Locate fields through index
+                if (!second_chunk.is_valid) {
+                    throw std::runtime_error("Missing field in first chunk: " + field.name);
+                }
+                arrays.push_back(create_arrow_array(second_chunk));
+            }
+
+            auto batch2 = arrow::RecordBatch::Make(
+                arrowSchema_,
+                chunks.second_chunk.begin()->second.count,
+                arrays
+            );
+
+            PARQUET_THROW_NOT_OK(filewriter_->WriteRecordBatch(*batch2));
         }
-
-        // Create table
-        auto table = arrow::Table::Make(arrowSchema_, arrays);
-
-        PARQUET_THROW_NOT_OK(filewriter_->WriteTable(*table, 1024));
 
         return true;
     }
@@ -98,9 +118,6 @@ private:
     };
 
     void initialise_builders(const Schema& schema) {
-		auto builder = create_builder(Kind::Int64); // timestamp
-		auto arrowfield = arrow::field(timestamp_field_name, to_arrow_type(Kind::Int64), false);
-		builders_.insert({ timestamp_field_name, SignalBuilder{ builder, arrowfield } });
         for (const auto& field : schema.fields()) {
 			if (field.name == timestamp_field_name) throw std::runtime_error("Field name reserved: " + std::string(timestamp_field_name));
 			auto builder = create_builder(field.kind);

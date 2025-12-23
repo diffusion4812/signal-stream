@@ -39,21 +39,50 @@ Signals share the same timestamp space within their stream.
 end note
 
 rectangle "Project Manager" as ProjectManager #LightSlateGrey {
-
   rectangle "Storage Manager" as StorageManager {
-    database "Offline Storage" {
+    ' Offline Storage Section
+    package "Offline Storage" #LightCoral {
       [Offline Storage] as OfflineDataStorage
+
+      interface "IStorageBackend" as IBackend
+      note right of IBackend
+        Pluggable backend interface
+      end note
+
+      component "Parquet Backend" as ParquetBackend #PaleGreen
+      component "HDF5 Backend" as HDF5Backend #PaleTurquoise
+      component "CSV Backend" as CSVBackend #Wheat
+      component "Custom Backend" as CustomBackend #Lavender
+
+      OfflineDataStorage -down-> IBackend : "uses"
+      IBackend <|.. ParquetBackend
+      IBackend <|.. HDF5Backend
+      IBackend <|.. CSVBackend
+      IBackend <|.. CustomBackend
+
+      note bottom of ParquetBackend
+        Zero-copy columnar writes
+        via Arrow RecordBatch
+      end note
     }
-    database "Stream Buffers" {
-      collections "Streams" as ServiceBuffers
+
+    ' Online Storage Section
+    package "Online Storage" #LightYellow {
+      collections "Stream Holders" as StreamHolders
+      database "Stream Buffer" as StreamBuffer #WhiteSmoke {
+        collections "Signal Buffer" as SignalBuffer
+      }
+
+      StreamHolders -> StreamBuffer
     }
+
+  [Buffer Handle] as BufferHandle
+  StreamBuffer -down-> BufferHandle
   }
 
   collections "Services" as services
 
-  [Buffer Handle] as BufferHandle
 
-  StorageManager -> BufferHandle
 }
 
 note top of ProjectManager

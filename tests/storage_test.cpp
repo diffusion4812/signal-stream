@@ -150,7 +150,7 @@ TEST(Manager, ProducerTokenSubmission) {
     ASSERT_EQ(records, 1000);
 }
 
-/*TEST(ParquetWriteTest, CreateSimpleFile) {
+TEST(ParquetWriteTest, CreateSimpleFile) {
     arrow::Int32Builder int_builder;
     arrow::StringBuilder str_builder;
 
@@ -200,11 +200,10 @@ TEST(Manager_Parquet, AddStreamWithFlush) {
     bool ok = man_parquet->create_stream(
         "teststream",
         StreamStorageOptions{
-            .capacity = 1024 * 1024,
-            .flush_batch_size = 1,
-            .flush_interval = std::chrono::milliseconds(200)
+			.capacity_records = 10000,
+            .flush_batch_size = 5000
         },
-        schema.instance_size()
+        schema
     );
     ASSERT_TRUE(ok);
 }
@@ -230,7 +229,7 @@ TEST(Manager_Parquet, ProducerTokenSubmission) {
     std::memcpy(payload.data(), instance.get_data(), userRecordSize);
 
     // Submit multiple batches via token
-    for (int i = 0; i < 1600; i++) {
+    for (int i = 0; i < 10000; i++) {
         auto result = token.try_submit(std::vector<std::byte>(payload));
         ASSERT_EQ(result, SubmitResult::Accepted);
     }
@@ -238,9 +237,9 @@ TEST(Manager_Parquet, ProducerTokenSubmission) {
     // Validate stored record count
     auto records = man_parquet->stream_size("teststream").value();
     ColoredPrint(Color::YELLOW, "teststream records stored = %d\n", records);
-    ASSERT_EQ(records, 1600);
+    ASSERT_EQ(records, 10000);
 }
 
 TEST(Manager_Parquet, ForceFlush) {
-	man_parquet->force_flush("teststream");
-}*/
+	man_parquet->flush_stream("teststream");
+}

@@ -23,6 +23,30 @@ using ts_t = std::int64_t;
 
 class ISignalBuffer {
 public:
+    struct ContiguousChunk {
+        const std::byte* data;
+        size_t offset;
+        size_t count;       // Number of elements
+        Kind kind;
+        bool is_valid = false;
+
+        // Convenience helper
+        size_t size_bytes() const {
+            return count * element_size_from_kind(kind);
+        }
+
+    private:
+        static constexpr size_t element_size_from_kind(Kind k) {
+            switch (k) {
+            case Kind::Int32:  return sizeof(int32_t);
+            case Kind::Int64:  return sizeof(int64_t);
+            case Kind::Float:  return sizeof(float);
+            case Kind::Double: return sizeof(double);
+            default: return 0;
+            }
+        }
+    };
+
     virtual ~ISignalBuffer() = default;
 
     virtual size_t size() const noexcept = 0;
@@ -30,11 +54,19 @@ public:
     virtual bool full() const noexcept = 0;
     virtual bool empty() const noexcept = 0;
 
+    // Returns up to 2 contiguous chunks
+    virtual std::pair<ContiguousChunk, ContiguousChunk>
+        get_oldest_chunks(size_t requested_count) const = 0;
+
+    virtual void consume(size_t count) = 0;
+
     // NEW: Append strided data (for row-major to column-major conversion)
     virtual size_t append_strided(const std::byte* data, size_t count,
         size_t stride) = 0;
 
     virtual void clear() = 0;
+
+    virtual Kind get_kind() const noexcept = 0;
 };
 
 template <typename T>
@@ -59,6 +91,65 @@ public:
     size_t append_strided_no_overflow(const std::byte* data, size_t count,
         size_t stride) {
         return append_strided_internal(data, count, stride, false);
+    }
+
+    std::pair<ContiguousChunk, ContiguousChunk>
+        get_oldest_chunks(size_t requested_count) const override {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (requested_count > size_) {
+            requested_count = size_;
+        }
+
+        ContiguousChunk first{ nullptr, 0, 0, type_to_kind<T>(), false };
+        ContiguousChunk second{ nullptr, 0, 0, type_to_kind<T>(), false };
+
+        if (requested_count == 0) {
+            return { first, second };
+        }
+
+        size_t available_to_end = capacity_ - head_;
+
+        if (requested_count <= available_to_end) {
+            first = ContiguousChunk{
+                reinterpret_cast<const std::byte*>(&buffer_[head_]),
+                head_,
+                requested_count,
+                type_to_kind<T>(),
+                true
+            };
+        }
+        else {
+            first = ContiguousChunk{
+                reinterpret_cast<const std::byte*>(&buffer_[head_]),
+                head_,
+                available_to_end,
+                type_to_kind<T>(),
+                true
+            };
+
+            size_t wrapped_count = requested_count - available_to_end;
+            second = ContiguousChunk{
+                reinterpret_cast<const std::byte*>(&buffer_[0]),
+                0,
+                wrapped_count,
+                type_to_kind<T>(),
+                true
+            };
+        }
+
+        return { first, second };
+    }
+
+    Kind get_kind() const noexcept override {
+        return type_to_kind<T>();
+    }
+
+    // Advance head pointer after successful write
+    void consume(size_t count) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        head_ = (head_ + count) % capacity_;
+        size_ -= count;
     }
 
     size_t size() const noexcept override {
@@ -145,6 +236,16 @@ private:
     size_t tail_;   // Index where next element will be written
     size_t size_;   // Current number of elements
     mutable std::mutex mutex_;
+
+    // Helper function
+    template<typename U>
+    static constexpr Kind type_to_kind() {
+        if constexpr (std::is_same_v<U, int32_t>) return Kind::Int32;
+        if constexpr (std::is_same_v<U, int64_t>) return Kind::Int64;
+        if constexpr (std::is_same_v<U, float>) return Kind::Float;
+        if constexpr (std::is_same_v<U, double>) return Kind::Double;
+		throw std::runtime_error("Unsupported type for SignalBuffer");
+    }
 };
 
 class StreamBuffer {
@@ -153,6 +254,15 @@ public:
         Overwrite,  // Circular buffer: overwrite oldest data (default)
         Reject,     // Reject new data when full, keep oldest data
         Throw       // Throw exception on overflow attempt
+    };
+
+    struct BatchChunks {
+        size_t total_count;
+        // First contiguous region (always present if total_count > 0)
+        std::unordered_map<size_t, ISignalBuffer::ContiguousChunk> first_chunk;
+        // Second region (only if ring wraps)
+        std::unordered_map<size_t, ISignalBuffer::ContiguousChunk> second_chunk;
+        bool has_wrap() const { return !second_chunk.empty(); }
     };
 
     // capacityRecords: number of records buffer can hold
@@ -272,6 +382,53 @@ public:
         }
 
         return { recs, 0, 0 };
+    }
+
+    BatchChunks get_batch_chunks(size_t requested_count) {
+        BatchChunks result;
+        result.total_count = 0;
+
+        if (buffers_.empty()) return result;
+
+        // Limit returned records to available records
+        size_t actual_count = std::min(requested_count, buffers_.at(0)->size());
+
+        if (actual_count == 0) return result;
+
+        result.total_count = actual_count;
+
+        // Get chunks for all signals
+        for (const auto& [idx, buffer] : buffers_) {
+            auto [chunk1, chunk2] = buffer->get_oldest_chunks(actual_count);
+
+            if (chunk1.is_valid) {
+                result.first_chunk[idx] = ISignalBuffer::ContiguousChunk{
+                    chunk1.data,
+                    0,
+                    chunk1.count,
+					schema_.fields().at(idx).kind,
+                    true
+                };
+            }
+
+            if (chunk2.is_valid) {
+                result.second_chunk[idx] = ISignalBuffer::ContiguousChunk{
+                    chunk2.data,
+                    0,
+                    chunk2.count,
+                    schema_.fields().at(idx).kind,
+                    true
+                };
+            }
+        }
+
+        return result;
+    }
+
+    void consume_batch(size_t count) {
+        for (auto& [idx, buffer] : buffers_) {
+            buffer->consume(count);
+        }
     }
 
     /*std::vector<std::byte> take_oldest_batch(size_t req_count) {
@@ -575,22 +732,6 @@ public:
     size_t capacity_records() const { return capacity_records_; }
 
 private:
-    /*void write_at(size_t pos, const std::byte* src, size_t len) {
-        size_t first = std::min(len, capacityBytes_ - pos);
-        std::memcpy(&buf_[pos], src, first);
-        if (first < len) {
-            std::memcpy(&buf_[0], src + first, len - first);
-        }
-    }
-
-    void read_at(size_t pos, std::byte* dst, size_t len) const {
-        size_t first = std::min(len, capacityBytes_ - pos);
-        std::memcpy(dst, &buf_[pos], first);
-        if (first < len) {
-            std::memcpy(dst + first, &buf_[0], len - first);
-        }
-    }*/
-
     mutable std::mutex mtx_;
 
     const Schema& schema_;
