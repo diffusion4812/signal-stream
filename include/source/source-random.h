@@ -88,10 +88,12 @@ protected:
                 break;
             }
         }
-        SubmitResult r = token_.try_submit(std::move(
-            std::vector<std::byte>(reinterpret_cast<std::byte*>(
-                instance.get_data()),
-                reinterpret_cast<std::byte*>(instance.get_data()) + schema_.value().instance_size())));
+
+        const auto* begin = reinterpret_cast<const std::byte*>(instance.get_data());
+        const auto* end = begin + schema_->instance_size();
+        SubmitResult r = token_.try_submit(
+            std::vector<std::byte>(begin, end)
+        );
 
         std::unique_lock<std::mutex> lk(mtx_);
         cv_.wait_for(lk, std::chrono::milliseconds(20), [this] { return !running_.load(); });

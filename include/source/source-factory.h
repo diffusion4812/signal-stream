@@ -55,7 +55,7 @@ inline bool RegisterSourceFactory(const std::string& type, SourceFactoryFn fn) {
     }
 
 // Lookup helper: create source by type; returns nullptr if type not found.
-inline std::shared_ptr<ISource> CreateSourceByType(ServiceBus& bus, const std::string& name, const std::string& type, const IMetadata& metadata, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
+inline std::shared_ptr<ISource> create_source_by_type(ServiceBus& bus, const std::string& name, const std::string& type, const IMetadata& metadata, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
     auto& m = SourceFactoryMap();
     auto it = m.find(type);
     if (it == m.end()) return nullptr;

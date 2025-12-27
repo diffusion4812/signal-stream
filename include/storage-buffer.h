@@ -147,6 +147,12 @@ public:
 
     // Advance head pointer after successful write
     void consume(size_t count) {
+        if (count > size_) {
+            throw std::runtime_error(
+                "Cannot consume " + std::to_string(count) +
+                " records: only " + std::to_string(size_) + " available"
+            );
+        }
         std::lock_guard<std::mutex> lock(mutex_);
         head_ = (head_ + count) % capacity_;
         size_ -= count;
@@ -314,10 +320,10 @@ public:
     };
 
     AppendResult append(std::vector<std::byte>&& batch) {
-        if (batch.empty()) return { 0, 0, 0 };
+		if (batch.empty()) throw std::runtime_error("Cannot append empty batch to StreamBuffer");
 
         const size_t instanceSize = schema_.instance_size();
-        if (batch.size() % instanceSize != 0) return { 0, 0, 0 };
+        if (batch.size() % instanceSize != 0) throw std::runtime_error("Append batch size " + std::to_string(batch.size()) + " is not a multiple of instance size " + std::to_string(instanceSize));
 
         const size_t recs = batch.size() / instanceSize;
 
@@ -384,7 +390,7 @@ public:
         return { recs, 0, 0 };
     }
 
-    BatchChunks get_batch_chunks(size_t requested_count) {
+    BatchChunks get_batch_chunks(size_t requested_count) const {
         BatchChunks result;
         result.total_count = 0;
 
@@ -426,287 +432,21 @@ public:
     }
 
     void consume_batch(size_t count) {
+        // Pre-validation: check if operation is valid
+        if (count == 0) {
+            return; // No-op, avoid unnecessary iteration
+        }
+
+        size_t min_available = std::numeric_limits<size_t>::max();
+        for (const auto& [idx, buffer] : buffers_) {
+            min_available = std::min(min_available, buffer->size());
+        }
+
+		size_t to_consume = std::min(count, min_available);
         for (auto& [idx, buffer] : buffers_) {
-            buffer->consume(count);
+            buffer->consume(to_consume);
         }
     }
-
-    /*std::vector<std::byte> take_oldest_batch(size_t req_count) {
-        std::lock_guard<std::mutex> lk(mtx_);
-        std::vector<std::byte> out;
-        if (req_count == 0 || count_ == 0) return out;
-        size_t to_take = std::min(req_count, count_);
-        size_t bytesToRead = to_take * recordSize_;
-        out.resize(bytesToRead);
-
-        if (head_ + bytesToRead <= capacityBytes_) {
-            std::memcpy(out.data(), &buf_[head_], bytesToRead);
-            head_ = (head_ + bytesToRead) % capacityBytes_;
-        }
-        else {
-            size_t first = capacityBytes_ - head_;
-            std::memcpy(out.data(), &buf_[head_], first);
-            std::memcpy(out.data() + first, &buf_[0], bytesToRead - first);
-            head_ = (head_ + bytesToRead) % capacityBytes_;
-        }
-
-        count_ -= to_take;
-        if (count_ == 0) { head_ = tail_ = 0; }
-        return out;
-    }
-
-    std::vector<std::byte> latest(size_t n) const {
-        std::lock_guard<std::mutex> lk(mtx_);
-        std::vector<std::byte> out;
-        if (n == 0 || count_ == 0) {
-            out.resize(recordSize_);
-            return out; // Return one empty record
-        }
-        size_t to_take = std::min(n, count_);
-        size_t bytesToRead = to_take * recordSize_;
-        out.resize(bytesToRead);
-
-        size_t cur = (tail_ + capacityBytes_ - recordSize_) % capacityBytes_;
-        for (size_t i = 0; i < to_take; ++i) {
-            read_at(cur, out.data() + i * recordSize_, recordSize_);
-            cur = (cur + capacityBytes_ - recordSize_) % capacityBytes_;
-        }
-        return out;
-    }
-
-    std::vector<std::byte> query_if(std::function<bool(const std::byte* record)> predicate) const {
-        std::lock_guard<std::mutex> lk(mtx_);
-        std::vector<std::byte> out;
-        if (count_ == 0) return out;
-        out.reserve(count_ * recordSize_);
-        size_t cur = head_;
-        std::vector<std::byte> tmp(recordSize_);
-        for (size_t i = 0; i < count_; ++i) {
-            read_at(cur, tmp.data(), recordSize_);
-            if (predicate(tmp.data())) {
-                out.insert(out.end(), tmp.begin(), tmp.end());
-            }
-            cur = (cur + recordSize_) % capacityBytes_;
-        }
-        return out;
-    }
-
-    std::vector<std::pair<ts_t, std::vector<std::byte>>> latest_parsed(size_t n) const {
-        std::vector<std::pair<ts_t, std::vector<std::byte>>> out;
-        std::lock_guard<std::mutex> lk(mtx_);
-        if (n == 0 || count_ == 0) {
-            out.resize(1);
-            out[0].first = 0;
-            out[0].second.resize(recordSize_);
-            return out; // Return one empty record
-        }
-        size_t take = std::min(n, count_);
-        size_t start_index = (count_ >= take) ? (count_ - take) : 0;
-        size_t start_byte = (head_ + start_index * recordSize_) % capacityBytes_;
-        size_t bytesToRead = take * recordSize_;
-        std::vector<std::byte> buf(bytesToRead);
-
-        if (start_byte + bytesToRead <= capacityBytes_) {
-            std::memcpy(buf.data(), &buf_[start_byte], bytesToRead);
-        }
-        else {
-            size_t first = capacityBytes_ - start_byte;
-            std::memcpy(buf.data(), &buf_[start_byte], first);
-            std::memcpy(buf.data() + first, &buf_[0], bytesToRead - first);
-        }
-
-        out.reserve(take);
-        for (size_t i = 0; i < take; ++i) {
-            const std::byte* recptr = buf.data() + i * recordSize_;
-            ts_t ts;
-            std::memcpy(&ts, recptr, kTimestampBytes);
-            std::vector<std::byte> payload(recptr + kTimestampBytes, recptr + recordSize_);
-            out.emplace_back(ts, std::move(payload));
-        }
-        return out;
-    }
-
-    // NEW: Multi-signal export for ImPlot
-    struct MultiPlotData {
-        std::vector<double> xs;                   // shared timestamps
-        std::vector<std::vector<double>> ys;      // one vector per signal
-    };
-
-    template<typename ExtractorFn>
-    MultiPlotData range_multi_plot_data(ts_t startTs, ts_t endTs, size_t numSignals, ExtractorFn extractor, size_t plotWidthPx = 0, size_t maxPoints = 0) const {
-        MultiPlotData mpd;
-        mpd.ys.resize(numSignals);
-
-        std::lock_guard<std::mutex> lk(mtx_);
-        if (count_ == 0) return mpd;
-
-        ts_t rangeStart, rangeEnd;
-        if (endTs == 0) {
-            size_t latestByte = (head_ + (count_ - 1) * recordSize_) % capacityBytes_;
-            ts_t latestTs;
-            std::memcpy(&latestTs, &buf_[latestByte], kTimestampBytes);
-            ts_t prevNs = static_cast<ts_t>(startTs); // nanoseconds in "previous seconds" mode
-            rangeStart = latestTs - prevNs;
-            rangeEnd = latestTs;
-        }
-        else {
-            rangeStart = startTs;
-            rangeEnd = endTs;
-        }
-        if (rangeStart >= rangeEnd) return mpd;
-
-        // Binary search for first index >= rangeStart
-        size_t low = 0, high = count_;
-        while (low < high) {
-            size_t mid = (low + high) / 2;
-            size_t midByte = (head_ + mid * recordSize_) % capacityBytes_;
-            ts_t ts;
-            std::memcpy(&ts, &buf_[midByte], kTimestampBytes);
-            if (ts < rangeStart) low = mid + 1;
-            else high = mid;
-        }
-        size_t firstIdx = low;
-
-        // Count samples in range
-        size_t sampleCount = 0;
-        for (size_t i = firstIdx; i < count_; ++i) {
-            size_t recByte = (head_ + i * recordSize_) % capacityBytes_;
-            ts_t ts;
-            std::memcpy(&ts, &buf_[recByte], kTimestampBytes);
-            if (ts > rangeEnd) break;
-            sampleCount++;
-        }
-
-        // Safety cap
-        if (maxPoints > 0 && sampleCount > maxPoints) {
-            plotWidthPx = maxPoints / 2; // each bin produces up to 2 points
-        }
-
-        // RAW MODE: fewer samples than pixels
-        if (plotWidthPx == 0 || sampleCount <= plotWidthPx) {
-            for (auto& sigVec : mpd.ys) sigVec.reserve(sampleCount);
-            for (size_t i = firstIdx; i < count_; ++i) {
-                size_t recByte = (head_ + i * recordSize_) % capacityBytes_;
-                ts_t ts;
-                std::memcpy(&ts, &buf_[recByte], kTimestampBytes);
-                if (ts > rangeEnd) break;
-                mpd.xs.push_back(static_cast<double>(ts) / 1e9);
-                const std::byte* payload = &buf_[recByte] + kTimestampBytes;
-                extractor(payload, mpd.ys); // push_back mode
-            }
-            return mpd;
-        }
-
-        // BINNING MODE
-        ts_t binSizeNs = (rangeEnd - rangeStart) / plotWidthPx;
-        ts_t alignedStart = (rangeStart / binSizeNs) * binSizeNs; // snap to pixel boundary
-        ts_t binStart = alignedStart;
-        ts_t binEnd = binStart + binSizeNs;
-
-        std::vector<double> minVals(numSignals), maxVals(numSignals);
-        std::vector<double> values(numSignals); // preallocated, reused each iteration
-        ts_t minTs = 0, maxTs = 0;
-        bool binHasData = false;
-
-        // Preallocated tempYs with size 1 per signal (overwrite mode)
-        std::vector<std::vector<double>> tempYs(numSignals, std::vector<double>(1));
-
-        auto pushPoint = [&](ts_t pointTs, const std::vector<double>& vals) {
-            mpd.xs.push_back(static_cast<double>(pointTs) / 1e9);
-            for (size_t s = 0; s < numSignals; ++s) {
-                mpd.ys[s].push_back(vals[s]);
-            }
-            };
-
-        for (size_t i = firstIdx; i < count_; ++i) {
-            size_t recByte = (head_ + i * recordSize_) % capacityBytes_;
-            ts_t ts;
-            std::memcpy(&ts, &buf_[recByte], kTimestampBytes);
-            if (ts > rangeEnd) break;
-
-            const std::byte* payload = &buf_[recByte] + kTimestampBytes;
-
-            // Overwrite mode: extractor writes into tempYs[s][0]
-            extractor(payload, tempYs);
-
-            // Copy into preallocated values array
-            for (size_t s = 0; s < numSignals; ++s) {
-                values[s] = tempYs[s][0];
-            }
-
-            if (!binHasData) {
-                minVals = values;
-                maxVals = values;
-                minTs = ts;
-                maxTs = ts;
-                binHasData = true;
-            }
-            else {
-                for (size_t s = 0; s < numSignals; ++s) {
-                    if (values[s] < minVals[s]) { minVals[s] = values[s]; minTs = ts; }
-                    if (values[s] > maxVals[s]) { maxVals[s] = values[s]; maxTs = ts; }
-                }
-            }
-
-            if (ts >= binEnd) {
-                if (binHasData) {
-                    if (minTs <= maxTs) { pushPoint(minTs, minVals); pushPoint(maxTs, maxVals); }
-                    else { pushPoint(maxTs, maxVals); pushPoint(minTs, minVals); }
-                }
-                binStart = binEnd;
-                binEnd += binSizeNs;
-                binHasData = false;
-            }
-        }
-
-        // Flush last bin
-        if (binHasData) {
-            if (minTs <= maxTs) { pushPoint(minTs, minVals); pushPoint(maxTs, maxVals); }
-            else { pushPoint(maxTs, maxVals); pushPoint(minTs, minVals); }
-        }
-
-        return mpd;
-    }
-
-    template<typename ExtractorFn>
-    MultiPlotData latest_multi_plot_data(size_t n, size_t numSignals, ExtractorFn extractor) const {
-        MultiPlotData mpd;
-        mpd.ys.resize(numSignals); // always have numSignals inner vectors
-
-        std::lock_guard<std::mutex> lk(mtx_);
-        if (n == 0 || count_ == 0) {
-            // xs stays empty, each ys[i] stays empty
-            return mpd;
-        }
-
-        size_t take = std::min(n, count_);
-        mpd.xs.reserve(take);
-        for (auto& y : mpd.ys) y.reserve(take);
-
-        size_t start_index = (count_ >= take) ? (count_ - take) : 0;
-        size_t start_byte = (head_ + start_index * recordSize_) % capacityBytes_;
-        std::vector<std::byte> buf(take * recordSize_);
-
-        if (start_byte + buf.size() <= capacityBytes_) {
-            std::memcpy(buf.data(), &buf_[start_byte], buf.size());
-        }
-        else {
-            size_t first = capacityBytes_ - start_byte;
-            std::memcpy(buf.data(), &buf_[start_byte], first);
-            std::memcpy(buf.data() + first, &buf_[0], buf.size() - first);
-        }
-
-        for (size_t i = 0; i < take; ++i) {
-            const std::byte* recptr = buf.data() + i * recordSize_;
-            ts_t ts;
-            std::memcpy(&ts, recptr, kTimestampBytes);
-            mpd.xs.push_back(static_cast<double>(ts) / 1e9);
-
-            const std::byte* payload = recptr + kTimestampBytes;
-            extractor(payload, mpd.ys); // fill all signals in one go
-        }
-        return mpd;
-    }*/
 
     void clear() {
         std::scoped_lock<std::mutex> lk(mtx_);
@@ -730,6 +470,7 @@ public:
 
     size_t record_size() const { return schema_.instance_size(); }
     size_t capacity_records() const { return capacity_records_; }
+    const Schema& get_schema() const { return schema_; }
 
 private:
     mutable std::mutex mtx_;

@@ -1,8 +1,13 @@
 add_subdirectory(C:/Users/LOAR02/Source/Libraries/googletest googletest-build EXCLUDE_FROM_ALL)
 
+add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+
 add_executable(project_test
     ../source/sourceregistration.cpp
     ../source/schema.cpp
+    ../source/service-storage.cpp
+    ../source/service-source-registry.cpp
     ../source/service-project.cpp
     project_test.cpp
 )
@@ -24,17 +29,21 @@ endif()
 
 link_directories(C:/Users/LOAR02/Source/Libraries/googletest)
 
-target_link_libraries(project_test PRIVATE gtest_main)
+target_link_libraries(project_test PRIVATE
+    gmock_main
+)
 
 target_link_libraries(storage_test PRIVATE
-	gtest_main
+    gmock_main
     $<$<CONFIG:Debug>:arrow.lib>
     $<$<CONFIG:Debug>:parquet.lib>
     $<$<CONFIG:Release>:arrow.lib>
     $<$<CONFIG:Release>:parquet.lib>
 )
 
-target_link_libraries(expression_test PRIVATE gtest_main)
+target_link_libraries(expression_test PRIVATE
+    gmock_main
+)
 
 # Copy correct DLLs after build
 add_custom_command(TARGET storage_test POST_BUILD

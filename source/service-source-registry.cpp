@@ -1,129 +1,106 @@
-#include <algorithm>
-#include <cassert>
-#include <mutex>
-#include <shared_mutex>
-#include <vector>
-#include <memory>
-
-#include "service-bus.h"
 #include "service-source-registry.h"
 
-SourceRegistry::SourceRegistry(ServiceBus& bus) :
-    bus_(bus) {
+SourceRegistry::SourceRegistry(ServiceBus& bus)
+    : bus_(bus) {
 }
 
 SourceRegistry::~SourceRegistry() = default;
 
-// Create stream
-bool SourceRegistry::create_stream(const std::string& streamId, const SourceMetadata& meta) {
+bool SourceRegistry::register_source(const std::string& name) {
+    if (name.empty()) {
+        return false;
+    }
+
     {
-        std::scoped_lock lk(mtx_);
-        if (holders_.contains(streamId)) {
-            return true; // Already exists
+        std::scoped_lock lock(mtx_);
+
+        // Check if already exists
+        if (source_names_.contains(name)) {
+            return false;  // Already registered
         }
-        holders_.emplace(streamId, std::make_shared<RegistrySourceHolder>(meta));
+
+        source_names_.insert(name);
     }
-    bus_.Publish<Event>(Event{ Event::Type::Created, streamId, meta });
+
+    // Publish event (outside lock)
+    bus_.Publish<Event>(Event{
+        .type = Event::Type::Registered,
+        .source_name = name,
+        .old_name = std::nullopt
+        });
+
     return true;
 }
 
-// Delete stream
-bool SourceRegistry::delete_stream(const std::string& streamId) {
+bool SourceRegistry::unregister_source(const std::string& name) {
     {
-        std::scoped_lock<std::mutex> lk(mtx_);
-        auto it = holders_.find(streamId);
-        if (it == holders_.end()) return false;
+        std::scoped_lock lock(mtx_);
 
-        // Cleanup runtime state if needed (buffers, files, etc.)
-        holders_.erase(it);
+        // Try to erase
+        if (source_names_.erase(name) == 0) {
+            return false;  // Not found
+        }
     }
-    bus_.Publish<Event>(Event{ Event::Type::Deleted, streamId, {} });
+
+    // Publish event
+    bus_.Publish<Event>(Event{
+        .type = Event::Type::Unregistered,
+        .source_name = name,
+        .old_name = std::nullopt
+        });
+
     return true;
 }
 
-// Get stream
-std::optional<std::shared_ptr<RegistrySourceHolder>> SourceRegistry::get_stream(const std::string& streamId) {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    auto it = holders_.find(streamId);
-    if (it == holders_.end()) return std::nullopt;
-    return it->second;
-}
+bool SourceRegistry::rename_source(const std::string& oldName, const std::string& newName) {
+    if (oldName.empty() || newName.empty() || oldName == newName) {
+        return false;
+    }
 
-// Get stream metadata
-std::optional<SourceMetadata> SourceRegistry::get_stream_metadata(const std::string& streamId) const {
-    std::scoped_lock lk(mtx_);
-    auto it = holders_.find(streamId);
-    if (it == holders_.end()) return std::nullopt;
-    return it->second->metadata;
-}
-
-// Update stream
-bool SourceRegistry::update_stream(const std::string& streamId, const SourceMetadata& updatedMeta) {
     {
-        std::scoped_lock<std::mutex> lk(mtx_);
-        auto it = holders_.find(streamId);
-        if (it == holders_.end()) return false;
+        std::scoped_lock lock(mtx_);
+
+        // Check old name exists
+        if (!source_names_.contains(oldName)) {
+            return false;
+        }
+
+        // Check new name doesn't exist
+        if (source_names_.contains(newName)) {
+            return false;
+        }
+
+        // Perform rename
+        source_names_.erase(oldName);
+        source_names_.insert(newName);
     }
-    bus_.Publish<Event>(Event{ Event::Type::Updated, streamId, updatedMeta });
+
+    // Publish event
+    bus_.Publish<Event>(Event{
+        .type = Event::Type::Renamed,
+        .source_name = newName,
+        .old_name = oldName
+        });
+
     return true;
 }
 
-// Rename stream
-bool SourceRegistry::rename_stream(const std::string& oldName, const std::string& newName) {
-    {
-        std::scoped_lock<std::mutex> lk(mtx_);
-        auto it = holders_.find(oldName);
-        if (it == holders_.end()) return false;
-
-        auto holder = it->second;
-        holders_.erase(it);
-        holders_.emplace(newName, holder);
-    }
-    bus_.Publish<Event>(Event{ Event::Type::Renamed, newName, {} });
-    return true;
+bool SourceRegistry::is_registered(const std::string& name) const {
+    std::scoped_lock lock(mtx_);
+    return source_names_.contains(name);
 }
 
-// Lists
-std::vector<std::string> SourceRegistry::list_stream_ids() const {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    std::vector<std::string> ids;
-    ids.reserve(holders_.size());
-    for (const auto& kv : holders_) ids.push_back(kv.first);
-    return ids;
+std::vector<std::string> SourceRegistry::list_all_sources() const {
+    std::scoped_lock lock(mtx_);
+    return std::vector<std::string>(source_names_.begin(), source_names_.end());
 }
 
-std::vector<SourceMetadata> SourceRegistry::list_stream_metadata() const {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    std::vector<SourceMetadata> meta;
-    // Build from holders if you store metadata in StreamHolder
-    // Placeholder: return empty
-    return meta;
+size_t SourceRegistry::count() const {
+    std::scoped_lock lock(mtx_);
+    return source_names_.size();
 }
 
-void SourceRegistry::reconcile_state() {
-    // Example: ensure runtime state aligns with registry
-    // This is a no-op in this minimal prototype
-}
-
-void SourceRegistry::notify_of_external_change(const std::string& streamId) {
-    // Notify internal components if needed
-    (void)streamId;
-}
-
-size_t SourceRegistry::stream_count() const {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    return holders_.size();
-}
-
-std::shared_ptr<RegistrySourceHolder> SourceRegistry::get_or_create_holder(const std::string& streamId) {
-    std::scoped_lock<std::mutex> lk(mtx_);
-    auto it = holders_.find(streamId);
-    if (it != holders_.end()) return it->second;
-    // Create a minimal holder if desired (requires appropriate defaults)
-    // For this prototype, return nullptr to signal not found.
-    return nullptr;
-}
-
-std::unique_ptr<SourceRegistry> MakeSourceRegistry(ServiceBus& bus) {
-    return std::make_unique<SourceRegistry>(bus);
+void SourceRegistry::clear() {
+    std::scoped_lock lock(mtx_);
+    source_names_.clear();
 }

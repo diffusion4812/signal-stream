@@ -38,7 +38,7 @@ public:
                 if (!showModal_) dialog_.Close(); // close the dialog if the modal is closed
                 return; // project already opened
             }
-            state_->pm = std::make_unique<ProjectManager>(*state_->bus.get(), selectedPath, autostart_, *(state_->io_context));
+            state_->pm = std::make_unique<ProjectManager>(*state_->bus.get(), selectedPath, *(state_->io_context));
             state_->bus->Publish<WindowManager::Event>(WindowManager::Event{ WindowManager::Event::Type::OpenWindow, "window-signalbrowser", {} });
             dialog_.Close();
         }

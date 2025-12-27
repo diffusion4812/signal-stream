@@ -22,13 +22,36 @@ struct ParquetBackend : public IStorageBackend {
         initialise_parquet_file("default_stream");
     }
 
-    ~ParquetBackend() {
-        if (filewriter_) {
-            PARQUET_THROW_NOT_OK(filewriter_->Close());
+    ~ParquetBackend() noexcept {
+        try {
+            // Close file writer (handles Parquet metadata finalization)
+            if (filewriter_) {
+                auto status = filewriter_->Close();
+                if (!status.ok()) {
+                    std::cerr << "[ParquetBackend] Failed to close file writer: "
+                        << status.ToString() << std::endl;
+                }
+                filewriter_.reset();  // Explicitly release
+            }
+
+            // Close output file stream
+            if (outfile_) {
+                auto status = outfile_->Close();
+                if (!status.ok()) {
+                    std::cerr << "[ParquetBackend] Failed to close output file: "
+                        << status.ToString() << std::endl;
+                }
+                outfile_.reset();  // Explicitly release
+            }
         }
-        if (outfile_) {
-            PARQUET_THROW_NOT_OK(outfile_->Close());
-		}
+        catch (const std::exception& e) {
+            // Catch any unexpected exceptions from Arrow/Parquet internals
+            std::cerr << "[ParquetBackend] Exception in destructor: "
+                << e.what() << std::endl;
+        }
+        catch (...) {
+            std::cerr << "[ParquetBackend] Unknown exception in destructor" << std::endl;
+        }
     }
 
     bool write_batch_two_pass(const std::string& streamId,
@@ -108,6 +131,8 @@ struct ParquetBackend : public IStorageBackend {
             PARQUET_THROW_NOT_OK(filewriter_->WriteRecordBatch(*batch2));
         }
 
+        filewriter_->NewBufferedRowGroup();
+
         return true;
     }
 
@@ -122,14 +147,14 @@ private:
 			if (field.name == timestamp_field_name) throw std::runtime_error("Field name reserved: " + std::string(timestamp_field_name));
 			auto builder = create_builder(field.kind);
             auto arrowfield = arrow::field(field.name, to_arrow_type(field.kind), false);
-			builders_.insert({ field.name, SignalBuilder{ builder, arrowfield } });
+            builders_.push_back(SignalBuilder{ builder, arrowfield });
         }
     }
 
     std::shared_ptr<arrow::Schema> create_arrow_schema() const {
         std::vector<std::shared_ptr<arrow::Field>> fields;
-        for (const auto& [name, sb] : builders_) {
-            fields.push_back(sb.field);
+        for (const auto& builder : builders_) {
+            fields.push_back(builder.field);
         }
         return arrow::schema(fields);
     }
@@ -166,7 +191,7 @@ private:
     const Schema& schema_;
 	std::shared_ptr<arrow::Schema> arrowSchema_;
     std::mutex mtx_;
-    std::unordered_map<std::string, SignalBuilder> builders_;
+    std::vector<SignalBuilder> builders_;
     std::shared_ptr<arrow::io::FileOutputStream> outfile_;
     std::shared_ptr<parquet::arrow::FileWriter> filewriter_;
 };

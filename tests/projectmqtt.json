@@ -4,6 +4,11 @@
     {
       "name": "my MQTT data source",
       "type": "MQTT",
+      "storage": {
+        "capacity: 1000,
+        "flush_size": 50,
+        "flush_interval" 1000:
+      },
       "metadata": {
         "topic": "topic123"
       },

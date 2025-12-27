@@ -7,6 +7,7 @@
 #include <exception>
 #include <json.hpp>
 
+#include "service-storage.h"
 #include "schema.h"
 
 using json = nlohmann::json;
@@ -16,14 +17,15 @@ struct IMetadata {
 };
 
 struct SourceData {
-    std::string name;
-    std::string type;
+    std::string name = "";
+    std::string type = "";
+    StreamStorageOptions storage_options = StreamStorageOptions();
     std::shared_ptr<IMetadata> metadata;
-    Schema schema;
+    Schema schema = Schema();
 };
 
 struct ProjectData {
-    std::string name;
+    std::string name = "";
     std::vector<SourceData> sources;
 };
 

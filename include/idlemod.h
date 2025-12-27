@@ -1,5 +1,5 @@
 #pragma once
-3
+
 inline void NotifyUserInput(void* userdata)
 {
     AppState* state = (AppState*)userdata;

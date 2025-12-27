@@ -54,6 +54,7 @@ public:
     virtual bool TryAcquireSample(SampleHandle& outHandle, Instance& instance) = 0;
     virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const std::byte*& outData, size_t& outSize, Sample& outMeta) = 0;
     virtual void ReleaseSample(SampleHandle handle) = 0;
+	virtual Schema GetSchema() const = 0;
 };
 
 // Concrete base class with schema integration.
@@ -137,7 +138,7 @@ public:
     virtual bool AcquireSample(std::chrono::milliseconds timeout, SampleHandle& outHandle, const std::byte*& outData, size_t& outSize, Sample& outMeta) override {
         //bool result = DoAcquireSample(timeout, outHandle, outData, outSize, outMeta);
         bool result = false;
-        if (result && schema_->isfinalised() && outSize != schema_->instance_size()) {
+        if (result && schema_->is_finalized() && outSize != schema_->instance_size()) {
             bus_.Publish<Event>(Event{ Event::Type::Notification, "Sample size does not match schema", std::nullopt });
         }
         return result;
@@ -150,10 +151,17 @@ public:
         DoReleaseSample(handle);
     }
 
+    Schema GetSchema() const {
+        if (!schema_.has_value()) {
+            throw std::runtime_error("Schema not set");
+        }
+        return schema_.value();
+	}
+
 protected:
     virtual bool OnStart() {
         if (!schema_.has_value()) return false;
-        if (!schema_->isfinalised()) return false;
+        if (!schema_->is_finalized()) return false;
         return DoOnStart();
     }
 

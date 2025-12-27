@@ -44,7 +44,7 @@ TEST(Expressions, Playground){
     for (x = -5.0; x <= 5.0; x += 1.0)
     {
         const float y = expression.value();
-        ColoredPrint(Color::YELLOW, "             %19.15f\t%19.15f\n", x, y);
+        ColoredPrint(Color::YELLOW, "%19.15f\t%19.15f", x, y);
     }
 }
 
@@ -65,7 +65,7 @@ TEST(Expressions, CompileFail) {
 
     if (!ret)
     {
-        ColoredPrint(Color::YELLOW, "             Error: %s\n", parser.error().c_str());
+        ColoredPrint(Color::YELLOW, "Error: %s", parser.error().c_str());
     }
     ASSERT_FALSE(ret);
 }
@@ -80,13 +80,13 @@ TEST(Expressions, ClassExpr) {
     if (ret) {
         for (std::size_t i = 0; i < ret; ++i)
         {
-            ColoredPrint(Color::YELLOW, "             Error: %s\n", expr.getError(i).diagnostic.c_str());
+            ColoredPrint(Color::YELLOW, "Error: %s", expr.getError(i).diagnostic.c_str());
         }
     }
 
     ASSERT_EQ(ret, 0);
     const double y = expr.evaluate();
-    ColoredPrint(Color::YELLOW, "             %19.15f\t%19.15f\n", x, y);
+    ColoredPrint(Color::YELLOW, "%19.15f\t%19.15f", x, y);
     ASSERT_NEAR(y, 12.95, 0.1);
 }
 
@@ -100,11 +100,11 @@ TEST(Expressions, ClassExprFail) {
     if (ret) {
         for (std::size_t i = 0; i < ret; ++i)
         {
-            ColoredPrint(Color::YELLOW, "             Error: %s\n", expr.getError(i).diagnostic.c_str());
+            ColoredPrint(Color::YELLOW, "Error: %s", expr.getError(i).diagnostic.c_str());
         }
     }
 
     ASSERT_NE(ret, 0);
     const double y = expr.evaluate();
-    ColoredPrint(Color::YELLOW, "             %19.15f\t%19.15f\n", x, y);
+    ColoredPrint(Color::YELLOW, "%19.15f\t%19.15f", x, y);
 }

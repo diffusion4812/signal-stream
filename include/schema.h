@@ -47,7 +47,7 @@ public:
         return fields_;
     }
 
-    void finalise() {
+    void finalize() {
         if (finalised_) return;
         std::size_t off = 0;
         std::size_t maxAlign = 1;
@@ -61,7 +61,7 @@ public:
         finalised_ = true;
     }
 
-    bool isfinalised() {
+    bool is_finalized() {
         return finalised_;
     }
 

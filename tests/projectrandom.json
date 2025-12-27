@@ -4,11 +4,32 @@
     {
       "name": "my random data",
       "type": "Random",
+      "storage": {
+        "capacity": 1000,
+        "flush_size": 50,
+        "flush_interval": 1000
+      },
       "signals": [
-        { "name": "signal1", "type": "int32", "unit": "Celsius" },
-        { "name": "signal2", "type": "float", "unit": "Celsius" },
-        { "name": "signal3", "type": "float", "unit": "Celsius" },
-        { "name": "signal4", "type": "float", "unit": "Celsius" }
+        {
+          "name": "signal1",
+          "type": "int32",
+          "unit": "Celsius"
+        },
+        {
+          "name": "signal2",
+          "type": "int32",
+          "unit": "Celsius"
+        },
+        {
+          "name": "signal3",
+          "type": "int32",
+          "unit": "Celsius"
+        },
+        {
+          "name": "signal4",
+          "type": "int32",
+          "unit": "Celsius"
+        }
       ]
     }
   ]

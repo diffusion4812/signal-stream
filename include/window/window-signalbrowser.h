@@ -13,18 +13,18 @@ public:
     }
 
     void OnRender() {
-        if (ImGui::Begin(pm_->GetName().c_str())) {
+        if (ImGui::Begin(pm_->get_name().c_str())) {
             ImVec4 statusColor(0.7f, 0.7f, 0.7f, 1.0f);
             std::string statusText;
 
             if (ImGui::BeginTable("signal_list", 2, ImGuiTableFlags_SizingFixedFit)) {
-                for (const auto& source : pm_->GetProjectData().sources) {
-                    auto svc = pm_->GetService(source.name);
+                for (const auto& source : pm_->get_project_data().sources) {
+                    auto svc = pm_->get_source(source.name);
                     Instance instance(source.schema);
 
-                    StreamBufferHandle handle = pm_->GetBufferHandle(source.name);
-                    std::vector<std::byte> data = handle.get()->latest_parsed(1)[0].second; // Get the latest record (empty if no data available)
-                    instance.set_data(data.data());
+                    StreamBufferHandle handle = pm_->get_buffer_handle(source.name);
+                    //std::vector<std::byte> data = handle.get()->latest_parsed(1)[0].second; // Get the latest record (empty if no data available)
+                    //instance.set_data(data.data());
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
@@ -90,15 +90,15 @@ public:
                         ImGui::SameLine();
                         std::string startBtn = "Start##" + source.name;
                         if (ImGui::Button(startBtn.c_str())) {
-                            ProjectManager::ErrorString err;
-                            pm_->StartService(source.name, err);
+                            std::string err;
+                            pm_->start_service(source.name, err);
                             // Optionally handle error (e.g., show popup)
                         }
                         ImGui::SameLine();
                         std::string stopBtn = "Stop##" + source.name;
                         if (ImGui::Button(stopBtn.c_str())) {
-                            ProjectManager::ErrorString err;
-                            pm_->StopService(source.name, err);
+                            std::string err;
+                            pm_->stop_service(source.name, err);
                             // Optionally handle error
                         }
                         ImGui::SameLine();
@@ -109,7 +109,7 @@ public:
 
                         //ImGui::Text("Last event: %s", svc->GetLastEvent()->message.c_str());
 
-                        ImGui::ProgressBar(pm_->GetBufferHealth(source.name));
+                        ImGui::ProgressBar(pm_->get_buffer_health(source.name));
 
                         ImGui::Separator();
                         ImGui::Text("Schema:");

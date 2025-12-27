@@ -18,6 +18,7 @@ include_directories(
     C:/Users/LOAR02/Source/Libraries/async_mqtt/include
     C:/Users/LOAR02/Source/Libraries/rapidcsv/src
     C:/Users/LOAR02/Source/Libraries/boost/build/include/boost-1_90
+    C:/Users/LOAR02/Source/Libraries/spdlog/include
     C:/Users/LOAR02/Source/Libraries
     $ENV{BOOST_ROOT}
     include

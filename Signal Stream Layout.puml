@@ -81,23 +81,29 @@ rectangle "Project Manager" as ProjectManager #LightSlateGrey {
   }
 
   collections "Services" as services
-
-
 }
 
 note top of ProjectManager
 ProjectManager
-|_ Starts/Stops Services
-  |_ Service A ── produces
-    |_ Stream 1 ──► Signals
-    |_ Stream 2 ──► Signals
-  |_ Service B ── produces
-    |_ Stream 3 ──► Signals
-|_ Registers Streams in StreamRegistry
-  |_ StreamRegistry stores stream+signal metadata
-  |_ Emits events to StorageManager
-    |_ StorageManager allocates buffers per stream
-    |_ Buffers contain multiple signals under a schema
+|_ Manages Stream Lifecycle (start/stop/configure)
+|_ Stream Instance 1
+  |_ Owns Service Instance A
+  |_ Produces Signal Set α
+  |_ Registers metadata → StreamRegistry
+|_ Stream Instance 2
+  |_ Owns Service Instance A (separate instance)
+  |_ Produces Signal Set β
+  |_ Registers metadata → StreamRegistry
+|_ Stream Instance 3
+  |_ Owns Service Instance B
+  |_ Produces Signal Set γ
+  |_ Registers metadata → StreamRegistry
+|_ StreamRegistry
+  |_ Stores stream + signal metadata
+  |_ Emits events (stream started, signals available)
+  |_ Notifies → StorageManager
+    |_ Allocates buffers per stream
+      |_ Buffers contain signals under schema
 end note
 
 rectangle "User Interface" {
