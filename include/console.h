@@ -6,11 +6,11 @@
 #include <cstdint>
 
 class Console {
-    typedef struct {
+    struct LogItem {
         int prio;
         int64_t timestamp;
         std::string text;
-    } LogItem;
+    };
 
 public:
     void log(int prio, std::string text);

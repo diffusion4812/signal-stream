@@ -69,10 +69,14 @@ protected:
     }
 
     void RunOnce() override {
-        // Notify listeners
-        bus_.Publish<Event>(Event{ Event::Type::Information, "random buffer produced" });
         Instance instance(schema_.value());
+
         for (const auto& f : schema_.value().fields()) {
+            if (f.name == "_timestamp") {
+                int64_t timestamp = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                instance.set<int64_t>("_timestamp", timestamp);
+                continue;
+            }
             switch (f.kind) {
             case Kind::Int32:
                 instance.set<int32_t>(f.name, static_cast<int32_t>(rand_between(0, 100, gen_)));

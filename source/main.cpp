@@ -183,8 +183,6 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event)
     ImGui_ImplSDL3_ProcessEvent(event);
     switch (event->type) {
     case SDL_EVENT_DROP_FILE:
-        SDL_Log("File dropped: %s", event->drop.data);
-        prepAndReadFile(appstate, event->drop.data);
         return SDL_APP_CONTINUE;
     case SDL_EVENT_SYSTEM_THEME_CHANGED:
         if (SDL_GetSystemTheme() == SDL_SYSTEM_THEME_DARK) {

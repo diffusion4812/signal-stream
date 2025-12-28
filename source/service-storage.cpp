@@ -1,5 +1,7 @@
 #include "service-storage.h"
 
+#include "service-storage-backend-csv.h"
+
 // ============================================================================
 // ProducerToken Implementation
 // ============================================================================
@@ -67,7 +69,7 @@ StorageManager::StorageStreamHolder::~StorageStreamHolder() {
                 auto chunks = buffer->get_batch_chunks(flush_batch_size);
                 if (chunks.total_count == 0) break;
 
-                if (!backend->write_batch_two_pass(stream_name, chunks)) {
+                if (!backend->write(stream_name, chunks)) {
                     std::cerr << "Warning: Failed to flush stream '" << stream_name << "' during cleanup" << std::endl;
                     break;
                 }
@@ -107,12 +109,14 @@ bool StorageManager::create_stream(const std::string& streamId,
         StreamBuffer::OverflowPolicy::Overwrite
     );
 
+    auto backend = BackendFactory::create(opts.backend_config, s);
+
     // Create holder with backend reference
     auto holder = std::make_unique<StorageStreamHolder>(
         std::move(buf),
         opts,
         streamId,
-        std::make_unique<ParquetBackend>(std::filesystem::path("data_storage"), s)
+        std::move(backend)
     );
 
     if (opts.flush_interval.count() > 0) {
@@ -176,7 +180,7 @@ bool StorageManager::flush_stream(const std::string& streamId) {
         if (chunks.total_count == 0) break;
 
         // Write immediately while pointers are valid
-        if (!holder->backend->write_batch_two_pass(streamId, chunks)) {
+        if (!holder->backend->write(streamId, chunks)) {
             return false;
         }
 
@@ -244,6 +248,12 @@ std::optional<float> StorageManager::GetBufferHealth(const std::string& servicen
     StorageStreamHolder* holder = get_holder(servicename);
     if (!holder) return std::nullopt;
     return static_cast<float>(holder->buffer->size()) / holder->buffer->capacity_records();
+}
+
+std::optional<size_t> StorageManager::get_backend_records(const std::string& name) {
+    StorageStreamHolder* holder = get_holder(name);
+    if (!holder) return std::nullopt;
+    return std::optional<size_t>(holder->backend->get_total_records());
 }
 
 StorageManager::StorageStreamHolder* StorageManager::get_holder(const std::string& streamId) const {

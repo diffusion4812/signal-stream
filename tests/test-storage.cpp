@@ -10,7 +10,7 @@
 #include "schema.h"
 #include "instance.h"
 #include "storage-buffer.h"
-#include "service-storage.h"
+#include "service-storage-backend.h"
 #include "service-project.h"
 
 // ============================================================================

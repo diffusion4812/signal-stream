@@ -5,15 +5,17 @@
       "name": "my MQTT data source",
       "type": "MQTT",
       "storage": {
-        "capacity: 1000,
+        "capacity": 1000,
         "flush_size": 50,
-        "flush_interval" 1000:
+        "flush_interval": 1000
       },
       "metadata": {
-        "topic": "topic123"
+        "topic": "topic1"
       },
       "signals": [
-        { "name": "height", "type": "int32", "unit": "m" }
+        { "name": "setpoint", "type": "float", "unit": "m" },
+        { "name": "altitude", "type": "float", "unit": "m" },
+        { "name": "thrust", "type": "float", "unit": "%" }
       ]
     }
   ]

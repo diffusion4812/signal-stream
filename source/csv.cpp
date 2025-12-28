@@ -1,4 +1,4 @@
-#include "csv.h"
+/*#include "csv.h"
 
 // Function to read file in a separate thread using SDL3 file IO
 int SDLCALL ReadFileThread(void* userdata) {
@@ -43,7 +43,7 @@ void prepAndReadFile(void* userdata, const char* filepath) {
 
     SDL_Log("Full path to selected file: '%s'", filepath);
 
-    /*state->csvFiles.push_back(CSVFile());
+    state->csvFiles.push_back(CSVFile());
     CSVFile* file = &state->csvFiles.back(); // Get last added file
     file->filePath = std::filesystem::path(filepath);
     file->fileIsRead = false;
@@ -57,5 +57,6 @@ void prepAndReadFile(void* userdata, const char* filepath) {
     SDL_Thread* thread = SDL_CreateThread(ReadFileThread, NULL, file);
     SDL_DetachThread(thread);
 
-    state->windows.push_back(std::make_unique<Window_Analysis>(file));*/
+    state->windows.push_back(std::make_unique<Window_Analysis>(file));
 }
+*/

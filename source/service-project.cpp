@@ -23,6 +23,17 @@ inline SourceData parse_source_data(const json& j) {
     source.storage_options.flush_batch_size = k.at("flush_size").get<size_t>();
     size_t millis = k.at("flush_interval").get<size_t>();
     source.storage_options.flush_interval = std::chrono::milliseconds(millis);
+    source.storage_options.backend_config = ParquetBackend::Config{
+        FileRotationConfig{
+            100'000,                   // max_records_per_file
+            100 * 1024 * 1024,         // max_file_size_bytes
+            std::chrono::milliseconds(5'000), // max_file_duration
+            "./data",                  // output_directory
+            "{stream}_{timestamp}_{sequence}", // filename_pattern
+            nullptr,                   // on_file_created
+            nullptr                    // on_file_closed
+        }
+	};
 
     if (source.type == "MQTT") {
         if (!j.contains("metadata") || !j["metadata"].is_object()) throw std::runtime_error("Source missing 'metadata' object");
@@ -432,8 +443,6 @@ bool ProjectManager::stop_service(const std::string& name, std::string& outError
         return false;
     }
 
-	storage_.flush_stream(name);
-	storage_.remove_stream(name);
 	return true;
 }
 

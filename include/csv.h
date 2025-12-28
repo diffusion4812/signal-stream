@@ -1,4 +1,4 @@
-#pragma once
+/*#pragma once
 
 #include <filesystem>
 #include <SDL3/SDL.h>
@@ -18,4 +18,4 @@ typedef struct {
 } CSVFile;
 
 int SDLCALL ReadFileThread(void* userdata);
-void prepAndReadFile(void* userdata, const char* filepath);
+void prepAndReadFile(void* userdata, const char* filepath);*/

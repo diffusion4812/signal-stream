@@ -12,29 +12,19 @@
 #include <unordered_map>
 #include <vector>
 
-#include "service-source-registry.h"
 #include "storage-buffer.h"
+#include "service-storage-backend.h"
+#include "service-source-registry.h"
 
 // timestamp alias
 using ts_t = std::int64_t;
 
-// Abstract persistence backend
-struct IStorageBackend {
-    virtual ~IStorageBackend() = default;
-    virtual bool write_batch_two_pass(const std::string& streamId, const StreamBuffer::BatchChunks& chunks) = 0;
-};
-
-#include "service-storage-backend-null.h"
-#include "service-storage-backend-parquet.h"
-
 // Stream configuration options
 struct StreamStorageOptions {
-    // capacity expressed in number of records for the buffer backing the stream
     size_t capacity_records = 1000;
-    // flush batch size expressed in number of records
     size_t flush_batch_size = 1;
-    // timer interval used by timer_loop (not strictly required if you set 0)
     std::chrono::milliseconds flush_interval{ 0 };
+    BackendConfig backend_config = NullBackendConfig{};
 };
 
 // Result codes for submit
@@ -106,6 +96,8 @@ public:
     std::optional<StreamBufferHandle> GetBufferHandle(const std::string& streamId);
 
     std::optional<float> GetBufferHealth(const std::string& servicename) const;
+
+    std::optional<size_t> get_backend_records(const std::string& name);
 
 private:
     struct StorageStreamHolder {

@@ -176,14 +176,19 @@ private:
             bus_.Publish<Event>(Event{ Event::Type::Information, std::to_string(pv_opt->size()).c_str() });
             async_mqtt::v5::publish_packet packet(pv_opt.value().get<async_mqtt::v5::publish_packet>());
             std::string payload = packet.payload();
-            Instance instance(schema_.value());
-            instance.set_data(payload.data());
 
-            SubmitResult r = token_.try_submit(std::move(
-                std::vector<std::byte>(reinterpret_cast<std::byte*>(
-                    instance.get_data()),
-                    reinterpret_cast<std::byte*>(instance.get_data()) + schema_.value().instance_size())
-            ));
+            Instance instance(schema_.value());
+            int64_t timestamp = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+            instance.set<int64_t>("_timestamp", timestamp);
+
+            std::byte* data_ptr = instance.get_data();
+			memcpy(data_ptr + 8, payload.data(), std::min(payload.size(), schema_.value().instance_size() - 8));
+
+            const auto* begin = data_ptr;
+            const auto* end = begin + schema_.value().instance_size();
+            SubmitResult r = token_.try_submit(
+                std::vector<std::byte>(begin, end)
+            );
         }
         // next receive
         cli_.async_recv(

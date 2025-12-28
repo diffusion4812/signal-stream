@@ -122,7 +122,7 @@ public:
         }
     }
 
-    void* get_data() noexcept {
+    std::byte* get_data() noexcept {
         return data_.data();
     }
 

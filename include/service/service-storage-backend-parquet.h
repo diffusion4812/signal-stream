@@ -5,21 +5,22 @@
 #include <parquet/arrow/writer.h>
 #include <arrow/io/file.h>
 
-#include "service-storage.h"
+#include "service-storage-backend-file-mixin.h"
 #include "schema.h"
 #include "instance.h"
 
 #define timestamp_field_name "timestamp"
 
-struct ParquetBackend : public IStorageBackend {
-    explicit ParquetBackend(const std::filesystem::path& basePath, const Schema& schema)
-        : basePath_(basePath), schema_(schema) { // Copy schema
-        if (!std::filesystem::exists(basePath_)) {
-            std::filesystem::create_directories(basePath_);
-        }
+struct ParquetBackend : public FileRotatingBackend {
+    struct Config {
+        FileRotationConfig rotation;
+    };
+
+    explicit ParquetBackend(const Schema& schema, Config config)
+        : FileRotatingBackend(config.rotation)
+        , schema_(schema) {
         initialise_builders(schema_);
         arrowSchema_ = create_arrow_schema();
-        initialise_parquet_file("default_stream");
     }
 
     ~ParquetBackend() noexcept {
@@ -54,8 +55,8 @@ struct ParquetBackend : public IStorageBackend {
         }
     }
 
-    bool write_batch_two_pass(const std::string& streamId,
-        const StreamBuffer::BatchChunks& chunks) {
+protected:
+    bool write_to_current_file(const StreamBuffer::BatchChunks& chunks) override {
         std::lock_guard<std::mutex> lock(mtx_);
 
         if (chunks.total_count == 0) return true;
@@ -131,10 +132,49 @@ struct ParquetBackend : public IStorageBackend {
             PARQUET_THROW_NOT_OK(filewriter_->WriteRecordBatch(*batch2));
         }
 
-        filewriter_->NewBufferedRowGroup();
-
         return true;
     }
+
+    void open_new_file(const std::filesystem::path& filepath) override {
+        PARQUET_ASSIGN_OR_THROW(outfile_, arrow::io::FileOutputStream::Open(filepath.string()))
+        PARQUET_ASSIGN_OR_THROW(filewriter_, parquet::arrow::FileWriter::Open(*arrowSchema_, arrow::default_memory_pool(), outfile_));
+    }
+
+    void close_file() override {
+        if (filewriter_) {
+            PARQUET_THROW_NOT_OK(filewriter_->Close());
+            filewriter_.reset();
+        }
+        if (outfile_) {
+            PARQUET_THROW_NOT_OK(outfile_->Close());
+            outfile_.reset();
+		}
+    }
+
+    void flush_file() override {
+        filewriter_->NewBufferedRowGroup();
+    }
+
+    bool is_file_open() const override {
+        return outfile_ != nullptr && filewriter_ != nullptr;
+	}
+
+    size_t get_current_file_size() const override {
+        if (outfile_) {
+            auto result = outfile_->Tell();
+            if (result.ok()) {
+                return static_cast<size_t>(*result);
+            }
+            else {
+                throw std::runtime_error("Failed to get current file size: " + result.status().ToString());
+            }
+        }
+        return 0;
+	}
+
+    constexpr std::string get_file_extension() const override {
+        return "parquet";
+	}
 
 private:
     struct SignalBuilder {
@@ -175,19 +215,6 @@ private:
         throw std::runtime_error("Unsupported type: " + std::string(kindToString(kind)));
     }
 
-    void initialise_parquet_file(const std::string& streamId) {
-        std::filesystem::path filePath = basePath_ / (streamId + ".parquet");
-        PARQUET_ASSIGN_OR_THROW(outfile_, arrow::io::FileOutputStream::Open(filePath.string()));
-
-        PARQUET_ASSIGN_OR_THROW(filewriter_, parquet::arrow::FileWriter::Open(*arrowSchema_, arrow::default_memory_pool(), outfile_));
-    }
-
-    size_t calculate_record_size(const Schema& schema) {
-        // TODO: Implement record size calculation based on schema
-        return 0; // Placeholder
-    }
-
-    std::filesystem::path basePath_;
     const Schema& schema_;
 	std::shared_ptr<arrow::Schema> arrowSchema_;
     std::mutex mtx_;

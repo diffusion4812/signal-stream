@@ -398,6 +398,9 @@ public:
 
         // Limit returned records to available records
         size_t actual_count = std::min(requested_count, buffers_.at(0)->size());
+        for (size_t i = 1; i < buffers_.size(); i++) {
+            actual_count = std::min(actual_count, buffers_.at(i)->size());
+        }
 
         if (actual_count == 0) return result;
 
