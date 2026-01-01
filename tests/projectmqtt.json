@@ -10,12 +10,12 @@
         "flush_interval": 1000
       },
       "metadata": {
-        "topic": "topic1"
+        "topic": "pid/telemetry"
       },
       "signals": [
-        { "name": "setpoint", "type": "float", "unit": "m" },
         { "name": "altitude", "type": "float", "unit": "m" },
-        { "name": "thrust", "type": "float", "unit": "%" }
+        { "name": "thrust", "type": "float", "unit": "%" },
+        { "name": "setpoint", "type": "float", "unit": "m" }
       ]
     }
   ]
