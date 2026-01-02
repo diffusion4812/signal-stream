@@ -55,11 +55,7 @@ struct StreamBufferHandle {
     StreamBuffer* buf;
 
     explicit StreamBufferHandle(StreamBuffer* b) noexcept;
-
-    // Move constructor
     StreamBufferHandle(StreamBufferHandle&& other) noexcept;
-
-    // Move assignment
     StreamBufferHandle& operator=(StreamBufferHandle&& other) noexcept;
 
     // Delete copy operations
@@ -72,12 +68,18 @@ struct StreamBufferHandle {
 
 class StorageManager {
 public:
+    enum StreamType {
+        Archive,
+        Visualization
+    };
+
     explicit StorageManager();
     ~StorageManager();
 
     bool create_stream(const std::string& streamId,
-        const StreamStorageOptions& opts,
-        const Schema& s);
+                       const StreamStorageOptions& opts,
+                       const Schema& s,
+                       const StreamType type);
 
     bool remove_stream(const std::string& streamId);
 
@@ -93,14 +95,11 @@ public:
 
     std::optional<size_t> stream_size(const std::string& servicename) const;
 
-    std::optional<StreamBufferHandle> GetBufferHandle(const std::string& streamId);
-
-    std::optional<float> GetBufferHealth(const std::string& servicename) const;
-
-    std::optional<size_t> get_backend_records(const std::string& name);
+    std::optional<StreamBufferHandle> get_buffer_handle(const std::string& streamId, const StreamType type) const;
+    std::optional<float> get_arch_buffer_health(const std::string& servicename) const;
 
 private:
-    struct StorageStreamHolder {
+    struct ArchStreamHolder {
         std::string stream_name;
         std::unique_ptr<StreamBuffer> buffer;
         StreamStorageOptions opts;
@@ -111,27 +110,50 @@ private:
         std::condition_variable flusher_cv;
         size_t flush_batch_size;
 
-        StorageStreamHolder(
+        ArchStreamHolder(
             std::unique_ptr<StreamBuffer> buf,
             StreamStorageOptions o,
             std::string name,
             std::unique_ptr<IStorageBackend> backend
         );
-        ~StorageStreamHolder();
+        ~ArchStreamHolder();
 
-        StorageStreamHolder(const StorageStreamHolder&) = delete;
-        StorageStreamHolder& operator=(const StorageStreamHolder&) = delete;
-        StorageStreamHolder(StorageStreamHolder&&) = delete;
-        StorageStreamHolder& operator=(StorageStreamHolder&&) = delete;
+        ArchStreamHolder(const ArchStreamHolder&) = delete;
+        ArchStreamHolder& operator=(const ArchStreamHolder&) = delete;
+        ArchStreamHolder(ArchStreamHolder&&) = delete;
+        ArchStreamHolder& operator=(ArchStreamHolder&&) = delete;
     };
 
-    StorageStreamHolder* get_holder(const std::string& streamId) const;
-    void flusher_thread_func(const std::string& streamId, StorageStreamHolder* holder, std::chrono::milliseconds interval);
+    struct VisuStreamHolder {
+		std::string stream_name;
+		std::unique_ptr<StreamBuffer> buffer;
+        StreamStorageOptions opts;
+
+        VisuStreamHolder(
+            std::unique_ptr<StreamBuffer> buf,
+            StreamStorageOptions o,
+            std::string name
+        );
+
+        ~VisuStreamHolder() = default;
+
+        VisuStreamHolder(const VisuStreamHolder&) = delete;
+        VisuStreamHolder& operator=(const VisuStreamHolder&) = delete;
+        VisuStreamHolder(VisuStreamHolder&&) = delete;
+        VisuStreamHolder& operator=(VisuStreamHolder&&) = delete;
+	};
+
+    ArchStreamHolder* get_arch_holder(const std::string& streamId) const;
+    VisuStreamHolder* get_visu_holder(const std::string& streamId) const;
+    void flusher_thread_func(const std::string& streamId, ArchStreamHolder* holder, std::chrono::milliseconds interval);
 
     std::atomic<bool> stopFlag_;
     bool running_;
+
     mutable std::mutex streamsMtx_;
-    std::unordered_map<std::string, std::unique_ptr<StorageStreamHolder>> streams_; // per-stream buffers and options
+    std::unordered_map<std::string, std::unique_ptr<ArchStreamHolder>> arch_streams_;
+    std::unordered_map<std::string, std::unique_ptr<VisuStreamHolder>> visu_streams_;
+
     std::mutex lifecycleMtx_;
     std::condition_variable cv_;
 

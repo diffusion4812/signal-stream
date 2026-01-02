@@ -22,7 +22,7 @@ public:
                     auto svc = pm_->get_source(source.name);
                     Instance instance(source.schema);
 
-                    StreamBufferHandle handle = pm_->get_buffer_handle(source.name);
+                    //StreamBufferHandle handle = pm_->get_buffer_handle(source.name);
                     //std::vector<std::byte> data = handle.get()->latest_parsed(1)[0].second; // Get the latest record (empty if no data available)
                     //instance.set_data(data.data());
 

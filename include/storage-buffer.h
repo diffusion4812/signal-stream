@@ -319,7 +319,7 @@ public:
         explicit operator bool() const { return appended > 0; }
     };
 
-    AppendResult append(std::vector<std::byte>&& batch) {
+    AppendResult append(std::vector<std::byte>& batch) {
 		if (batch.empty()) throw std::runtime_error("Cannot append empty batch to StreamBuffer");
 
         const size_t instanceSize = schema_.instance_size();

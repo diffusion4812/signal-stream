@@ -139,53 +139,19 @@ bool ProjectManager::load_project(const ProjectData& pdata, bool autoStart, std:
     // Clear existing
     stop_all_services_locked();
     registry_.clear();
+    sources_.clear();
 
     data_ = pdata;
     finalize_all_schemas();
 
-    // Create sources with coordinated setup
+    // Create sources using add_source (WITHOUT taking lock - already locked)
     for (const SourceData& source_data : data_.sources) {
-        if (sources_.contains(source_data.name)) {
-            outError = "Duplicate source name: " + source_data.name;
+        if (!add_source_locked(source_data, outError)) {
+            // Rollback on failure
             sources_.clear();
+            registry_.clear();
             return false;
         }
-
-        // Step 1: Register in registry
-        if (!registry_.register_source(source_data.name)) {
-            outError = "Failed to register source: " + source_data.name;
-            sources_.clear();
-            return false;
-        }
-
-        // Step 2: Create buffer
-        if (!storage_.create_stream(source_data.name, source_data.storage_options, source_data.schema)) {
-            outError = "Failed to create buffer for source: " + source_data.name;
-            registry_.unregister_source(source_data.name);
-            sources_.clear();
-            return false;
-        }
-
-        // Step 3: Create source instance
-        auto source = create_source_by_type(
-            bus_,
-            source_data.name,
-            source_data.type,
-            *source_data.metadata,
-            source_data.schema,
-            storage_,
-            ioc_
-        );
-
-        if (!source) {
-            outError = "Unknown source type: " + source_data.type + " (source: " + source_data.name + ")";
-            storage_.flush_stream(source_data.name);
-            registry_.unregister_source(source_data.name);
-            sources_.clear();
-            return false;
-        }
-
-        sources_.emplace(source_data.name, std::move(source));
     }
 
     if (autoStart) {
@@ -254,7 +220,11 @@ std::unordered_map<std::string, ProjectManager::SourcePtr> ProjectManager::get_a
 
 bool ProjectManager::add_source(const SourceData& source, std::string& outError) {
     std::scoped_lock lock(mtx_);
+    return add_source_locked(source, outError);
+}
 
+// Internal implementation without locking (assumes caller holds lock)
+bool ProjectManager::add_source_locked(const SourceData& source, std::string& outError) {
     // Check for duplicate
     if (sources_.contains(source.name)) {
         outError = "Source already exists: " + source.name;
@@ -267,10 +237,44 @@ bool ProjectManager::add_source(const SourceData& source, std::string& outError)
         return false;
     }
 
-    // Step 2: Create buffer
-	StreamStorageOptions opts;
-    if (!storage_.create_stream(source.name, opts, source.schema)) {
-        outError = "Failed to create buffer for source: " + source.name;
+    // Step 2a: Create archive buffer
+    StreamStorageOptions archive_opts = StreamStorageOptions{
+        .capacity_records = 10'000,
+        .flush_batch_size = 1'000,
+        .flush_interval = std::chrono::milliseconds{5'000},
+        .backend_config = ParquetBackend::Config{
+            FileRotationConfig{
+                100'000,                              // max_records_per_file
+                100 * 1024 * 1024,                    // max_file_size_bytes
+                std::chrono::milliseconds(5'000),     // max_file_duration
+                "./data",                             // output_directory
+                "{stream}_{timestamp}_{sequence}",    // filename_pattern
+                nullptr,                              // on_file_created
+                nullptr                               // on_file_closed
+            }
+        }
+    };
+
+    if (!storage_.create_stream(source.name, archive_opts, source.schema,
+        StorageManager::StreamType::Archive)) {
+        outError = "Failed to create archive buffer for source: " + source.name;
+        registry_.unregister_source(source.name);
+        return false;
+    }
+
+    // Step 2b: Create visualization buffer
+    StreamStorageOptions viz_opts = StreamStorageOptions{
+        .capacity_records = 100'000,
+        .flush_batch_size = 0,
+        .flush_interval = std::chrono::milliseconds{0},
+        .backend_config = NullBackendConfig{},
+    };
+
+    if (!storage_.create_stream(source.name, viz_opts, source.schema,
+        StorageManager::StreamType::Visualization)) {
+        outError = "Failed to create visualization buffer for source: " + source.name;
+        // Cleanup archive stream
+        //storage_.remove_archive_stream(source.name);
         registry_.unregister_source(source.name);
         return false;
     }
@@ -287,8 +291,8 @@ bool ProjectManager::add_source(const SourceData& source, std::string& outError)
     );
 
     if (!source_ptr) {
-        outError = "Unknown source type: " + source.type;
-        storage_.flush_stream(source.name);
+        outError = "Unknown source type: " + source.type + " (source: " + source.name + ")";
+        storage_.remove_stream(source.name);  // Removes both archive and viz
         registry_.unregister_source(source.name);
         return false;
     }
@@ -300,8 +304,12 @@ bool ProjectManager::add_source(const SourceData& source, std::string& outError)
 
     sources_.emplace(source.name, std::move(source_ptr));
 
-    // Add to project data
-    data_.sources.push_back(source);
+    // Add to project data (only if not already present - for load_project case)
+    auto it = std::find_if(data_.sources.begin(), data_.sources.end(),
+        [&source](const SourceData& s) { return s.name == source.name; });
+    if (it == data_.sources.end()) {
+        data_.sources.push_back(source);
+    }
 
     return true;
 }
@@ -460,8 +468,8 @@ void ProjectManager::stop_all_services() {
 // Storage Access
 // ============================================================================
 
-StreamBufferHandle ProjectManager::get_buffer_handle(const std::string& sourceName) {
-    auto handleOpt = storage_.GetBufferHandle(sourceName);
+StreamBufferHandle ProjectManager::get_buffer_handle(const std::string& sourceName, const StorageManager::StreamType type) {
+    auto handleOpt = storage_.get_buffer_handle(sourceName, type);
     if (!handleOpt) {
         throw std::runtime_error("Buffer not found for source: " + sourceName);
     }
@@ -469,7 +477,7 @@ StreamBufferHandle ProjectManager::get_buffer_handle(const std::string& sourceNa
 }
 
 float ProjectManager::get_buffer_health(const std::string& sourceName) const {
-    return storage_.GetBufferHealth(sourceName).value_or(0.0f);
+    return storage_.get_arch_buffer_health(sourceName).value_or(0.0f);
 }
 
 const StorageManager& ProjectManager::get_storage() const {

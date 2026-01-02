@@ -5,9 +5,9 @@
       "name": "my MQTT data source",
       "type": "MQTT",
       "storage": {
-        "capacity": 1000,
-        "flush_size": 50,
-        "flush_interval": 1000
+        "capacity": 50000,
+        "flush_size": 5000,
+        "flush_interval": 20000
       },
       "metadata": {
         "topic": "pid/telemetry"
@@ -15,7 +15,10 @@
       "signals": [
         { "name": "altitude", "type": "float", "unit": "m" },
         { "name": "thrust", "type": "float", "unit": "%" },
-        { "name": "setpoint", "type": "float", "unit": "m" }
+        { "name": "setpoint", "type": "float", "unit": "m" },
+        { "name": "kp", "type": "float", "unit": "%" },
+        { "name": "ki", "type": "float", "unit": "%" },
+        { "name": "kd", "type": "float", "unit": "%" }
       ]
     }
   ]

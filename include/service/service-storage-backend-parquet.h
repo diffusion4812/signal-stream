@@ -12,6 +12,7 @@
 #define timestamp_field_name "timestamp"
 
 struct ParquetBackend : public FileRotatingBackend {
+public:
     struct Config {
         FileRotationConfig rotation;
     };

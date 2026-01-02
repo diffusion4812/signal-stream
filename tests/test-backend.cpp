@@ -118,5 +118,5 @@ TEST_F(CSVBackendTest, CreateStream) {
     }
 
 	//std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-    //ColoredPrint(Color::YELLOW, "buffer health: %.2f records flushed to disk: %2d", manager_->GetBufferHealth("CSV Stream").value(), manager_->get_backend_records("CSV Stream").value());
+    //ColoredPrint(Color::YELLOW, "buffer health: %.2f records flushed to disk: %2d", manager_->get_arch_buffer_health("CSV Stream").value(), manager_->get_backend_records("CSV Stream").value());
 }

@@ -372,7 +372,7 @@ TEST_F(StorageManagerTest, StreamSize) {
 TEST_F(StorageManagerTest, BufferHealth) {
     auto token = CreateStream("health_test", StreamStorageOptions{ .capacity_records = 100 });
 
-    auto health = manager->GetBufferHealth("health_test");
+    auto health = manager->get_arch_buffer_health("health_test");
     ASSERT_TRUE(health.has_value());
     ASSERT_FLOAT_EQ(health.value(), 0.0f);
 }
@@ -432,7 +432,7 @@ TEST_F(StorageManagerTest, HealthMonitoring) {
         token.try_submit(std::move(payload));
     }
 
-    auto health = manager->GetBufferHealth("health_monitor");
+    auto health = manager->get_arch_buffer_health("health_monitor");
     ASSERT_TRUE(health.has_value());
     ASSERT_NEAR(health.value(), 0.5f, 0.01f);
 

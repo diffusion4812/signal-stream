@@ -33,14 +33,14 @@ public:
         pm_(payload.pm),
         schema_(payload.schema),
         instance_(schema_),
-        duration_(60.0),  // Default 60 seconds
+        duration_(10.0),  // Default 60 seconds
         linked_min_(0.0),
         linked_max_(60.0)
     {
         // Initialize first source
         DisplayedSource source;
         source.handle = std::make_unique<StreamBufferHandle>(
-            pm_.get_buffer_handle(payload.sourcename)
+            pm_.get_buffer_handle(payload.sourcename, StorageManager::StreamType::Visualization)
         );
         source.plotter = std::make_unique<PlotDataProvider>(
             *source.handle->buf
@@ -75,7 +75,7 @@ public:
 
         // Render each source as a separate plot
         for (auto& [source_name, source] : sources_) {
-            //RenderSourcePlot(source_name, source);
+            RenderSourcePlot(source_name, source);
         }
 
         ImGui::End();
@@ -139,7 +139,7 @@ private:
             };
 
         // Get plot data with downsampling
-        const ts_t duration_ns = static_cast<ts_t>(duration_ * 1e9);
+        const ts_t duration_ns = static_cast<ts_t>(120.0 * 1e9);
         const size_t plot_width = static_cast<size_t>(
             std::max(100.0f, ImGui::GetContentRegionAvail().x)
             );
@@ -149,7 +149,7 @@ private:
             0,                              // 0 = "last N seconds" mode
             source.signals.size(),          // Number of signals
             extractor,
-            plot_width,                     // Downsample to plot width
+            0,                     // Downsample to plot width
             10000                           // Safety cap: max 10k points
         );
 
@@ -169,7 +169,7 @@ private:
                     break;
                 }
             }
-
+            
             if (has_y2) {
                 ImPlot::SetupAxis(ImAxis_Y2, "", ImPlotAxisFlags_AuxDefault);
             }

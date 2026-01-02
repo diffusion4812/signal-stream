@@ -55,7 +55,7 @@ public:
     void stop_all_services();
 
     // Storage access
-    StreamBufferHandle get_buffer_handle(const std::string& sourceName);
+    StreamBufferHandle get_buffer_handle(const std::string& sourceName, const StorageManager::StreamType type);
     float get_buffer_health(const std::string& sourceName) const;
     const StorageManager& get_storage() const;
 
@@ -70,6 +70,9 @@ private:
     bool start_all_services_locked(std::string& outError);
     void stop_all_services_locked();
     void finalize_all_schemas();
+
+	// Source management helpers
+    bool add_source_locked(const SourceData& source, std::string& outError);
 
     // Members
     ServiceBus& bus_;

@@ -37,10 +37,10 @@ StreamBufferHandle& StreamBufferHandle::operator=(StreamBufferHandle&& other) no
 }
 
 // ============================================================================
-// StorageManager::StorageStreamHolder Implementation
+// StorageManager::ArchStreamHolder Implementation
 // ============================================================================
 
-StorageManager::StorageStreamHolder::StorageStreamHolder(
+StorageManager::ArchStreamHolder::ArchStreamHolder(
     std::unique_ptr<StreamBuffer> buf,
     StreamStorageOptions o,
     std::string stream,
@@ -52,7 +52,7 @@ StorageManager::StorageStreamHolder::StorageStreamHolder(
     flush_batch_size(o.flush_batch_size) {
 }
 
-StorageManager::StorageStreamHolder::~StorageStreamHolder() {
+StorageManager::ArchStreamHolder::~ArchStreamHolder() {
     // Step 1: Stop flusher thread
     stop_flusher.store(true, std::memory_order_release);
     flusher_cv.notify_all();
@@ -84,6 +84,19 @@ StorageManager::StorageStreamHolder::~StorageStreamHolder() {
 }
 
 // ============================================================================
+// VisuStreamHolder Implementation
+// ============================================================================
+
+StorageManager::VisuStreamHolder::VisuStreamHolder(
+    std::unique_ptr<StreamBuffer> buf,
+    StreamStorageOptions o,
+    std::string stream)
+    : buffer(std::move(buf)),
+    opts(std::move(o)),
+    stream_name(std::move(stream)) {
+}
+
+// ============================================================================
 // StorageManager Implementation
 // ============================================================================
 
@@ -96,81 +109,112 @@ StorageManager::~StorageManager() {
 }
 
 bool StorageManager::create_stream(const std::string& streamId,
-    const StreamStorageOptions& opts,
-    const Schema& s) {
+                                   const StreamStorageOptions& opts,
+                                   const Schema& s,
+                                   const StreamType type = StreamType::Archive) {
     std::scoped_lock lk(streamsMtx_);
-    if (streams_.contains(streamId)) {
-        return true;
-    }
 
-    std::unique_ptr<StreamBuffer> buf = std::make_unique<StreamBuffer>(
-        s,
-        opts.capacity_records,
-        StreamBuffer::OverflowPolicy::Overwrite
-    );
+    if (type == StreamType::Archive) {
+        if (arch_streams_.contains(streamId)) {
+            return true;
+        }
 
-    auto backend = BackendFactory::create(opts.backend_config, s);
-
-    // Create holder with backend reference
-    auto holder = std::make_unique<StorageStreamHolder>(
-        std::move(buf),
-        opts,
-        streamId,
-        std::move(backend)
-    );
-
-    if (opts.flush_interval.count() > 0) {
-        StorageStreamHolder* holder_ptr = holder.get();
-        holder->flusher_thread = std::jthread(
-            &StorageManager::flusher_thread_func,
-            this,
-            streamId,
-            holder_ptr,
-            opts.flush_interval
+        std::unique_ptr<StreamBuffer> buf = std::make_unique<StreamBuffer>(
+            s,
+            opts.capacity_records,
+            StreamBuffer::OverflowPolicy::Overwrite
         );
-    }
 
-    streams_[streamId] = std::move(holder);
+        auto backend = BackendFactory::create(opts.backend_config, s);
+
+        // Create holder with backend reference
+        auto holder = std::make_unique<ArchStreamHolder>(
+            std::move(buf),
+            opts,
+            streamId,
+            std::move(backend)
+        );
+
+        if (opts.flush_interval.count() > 0) {
+            ArchStreamHolder* holder_ptr = holder.get();
+            holder->flusher_thread = std::jthread(
+                &StorageManager::flusher_thread_func,
+                this,
+                streamId,
+                holder_ptr,
+                opts.flush_interval
+            );
+        }
+
+        arch_streams_[streamId] = std::move(holder);
+    }
+    else if (type == StreamType::Visualization) {
+        if (visu_streams_.contains(streamId)) {
+            return true;
+        }
+
+        std::unique_ptr<StreamBuffer> buf = std::make_unique<StreamBuffer>(
+            s,
+            opts.capacity_records,
+            StreamBuffer::OverflowPolicy::Overwrite
+        );
+
+        // Create holder with backend reference
+        auto holder = std::make_unique<VisuStreamHolder>(
+            std::move(buf),
+            opts,
+            streamId
+        );
+
+        visu_streams_[streamId] = std::move(holder);
+    }
     return true;
 }
 
 bool StorageManager::remove_stream(const std::string& streamId) {
-    std::unique_ptr<StorageStreamHolder> holder_to_destroy;
+    std::scoped_lock<std::mutex> lk(streamsMtx_);
 
-    {
-        std::scoped_lock<std::mutex> lk(streamsMtx_);
-        auto it = streams_.find(streamId);
-        if (it == streams_.end()) return true;
+    std::unique_ptr<ArchStreamHolder> arch_holder_to_destroy;
+    auto it1 = arch_streams_.find(streamId);
+    if (it1 == arch_streams_.end()) return true;
 
-        holder_to_destroy = std::move(it->second);
-        streams_.erase(it);
-    }
+    arch_holder_to_destroy = std::move(it1->second);
+    arch_streams_.erase(it1);
+
+    std::unique_ptr<VisuStreamHolder> visu_holder_to_destroy;
+    auto it2 = visu_streams_.find(streamId);
+    if (it2 == visu_streams_.end()) return true;
+
+    visu_holder_to_destroy = std::move(it2->second);
+    visu_streams_.erase(it2);
 
     return true;
 }
 
 std::optional<ProducerToken> StorageManager::get_producer_token(const std::string& streamId) {
     std::scoped_lock<std::mutex> lk(streamsMtx_);
-    if (!streams_.count(streamId)) return std::nullopt;
+    if (!arch_streams_.count(streamId) and !visu_streams_.count(streamId)) return std::nullopt;
     return ProducerToken(this, streamId);
 }
 
 SubmitResult StorageManager::submit_batch_for_stream(
     const std::string& streamId,
     std::vector<std::byte>&& userPayload) {
-    StorageStreamHolder* holder = get_holder(streamId);
-    if (!holder) return SubmitResult::UnknownStream;
+    ArchStreamHolder* arch_holder = get_arch_holder(streamId);
+    VisuStreamHolder* visu_holder = get_visu_holder(streamId);
+    if (!arch_holder and !visu_holder) return SubmitResult::UnknownStream;
 
-    auto res = holder->buffer->append(std::move(userPayload));
-    if (!res.full_success()) {
+    auto res1 = arch_holder->buffer->append(userPayload); // Archive data
+	auto res2 = visu_holder->buffer->append(userPayload); // Visualization data
+
+    if (!res1.full_success()) {
         return SubmitResult::BackPressure;
     }
-
     return SubmitResult::Accepted;
 }
 
 bool StorageManager::flush_stream(const std::string& streamId) {
-    StorageStreamHolder* holder = get_holder(streamId);
+    ArchStreamHolder* holder = get_arch_holder(streamId);
     if (!holder) return false;
 
     while (true) {
@@ -191,7 +235,7 @@ bool StorageManager::flush_stream(const std::string& streamId) {
     return true;
 }
 
-void StorageManager::flusher_thread_func(const std::string& streamId, StorageStreamHolder* holder, std::chrono::milliseconds interval) {
+void StorageManager::flusher_thread_func(const std::string& streamId, ArchStreamHolder* holder, std::chrono::milliseconds interval) {
     while (!holder->stop_flusher.load(std::memory_order_acquire) &&
         !stopFlag_.load(std::memory_order_acquire)) {
 
@@ -223,7 +267,7 @@ void StorageManager::flusher_thread_func(const std::string& streamId, StorageStr
     // Thread exits, join in destructor will complete
 }
 
-size_t StorageManager::stream_count() const {
+/*size_t StorageManager::stream_count() const {
     std::scoped_lock lk(streamsMtx_);
     return streams_.size();
 }
@@ -232,32 +276,43 @@ std::optional<size_t> StorageManager::stream_size(const std::string& servicename
     StorageStreamHolder* holder = get_holder(servicename);
     if (!holder) return std::nullopt;
     return holder->buffer->size();
-}
+}*/
 
-std::optional<StreamBufferHandle> StorageManager::GetBufferHandle(const std::string& streamId) {
+std::optional<StreamBufferHandle> StorageManager::get_buffer_handle(const std::string& streamId, const StreamType type) const {
     std::unique_lock lk(streamsMtx_);
-    auto it = streams_.find(streamId);
-    if (it == streams_.end()) {
-        return std::nullopt;
+    if (type == StreamType::Archive) {
+        auto it = arch_streams_.find(streamId);
+        if (it == arch_streams_.end()) {
+            return std::nullopt;
+        }
+        // Lock is released here, caller must lock if needed
+        return std::make_optional<StreamBufferHandle>(it->second->buffer.get());
+	}
+	else if (type == StreamType::Visualization) {
+        auto it = visu_streams_.find(streamId);
+        if (it == visu_streams_.end()) {
+            return std::nullopt;
+        }
+        // Lock is released here, caller must lock if needed
+        return std::make_optional<StreamBufferHandle>(it->second->buffer.get());
     }
-    // Lock is released here � caller must lock if needed
-    return std::make_optional<StreamBufferHandle>(it->second->buffer.get());
+    return std::nullopt;
 }
 
-std::optional<float> StorageManager::GetBufferHealth(const std::string& servicename) const {
-    StorageStreamHolder* holder = get_holder(servicename);
-    if (!holder) return std::nullopt;
-    return static_cast<float>(holder->buffer->size()) / holder->buffer->capacity_records();
+std::optional<float> StorageManager::get_arch_buffer_health(const std::string& servicename) const {
+    ArchStreamHolder* arch_holder = get_arch_holder(servicename);
+    if (!arch_holder) return std::nullopt;
+    return static_cast<float>(arch_holder->buffer->size()) / arch_holder->buffer->capacity_records();
 }
 
-std::optional<size_t> StorageManager::get_backend_records(const std::string& name) {
-    StorageStreamHolder* holder = get_holder(name);
-    if (!holder) return std::nullopt;
-    return std::optional<size_t>(holder->backend->get_total_records());
-}
-
-StorageManager::StorageStreamHolder* StorageManager::get_holder(const std::string& streamId) const {
+StorageManager::ArchStreamHolder* StorageManager::get_arch_holder(const std::string& streamId) const {
     std::scoped_lock<std::mutex> lk(streamsMtx_);
-    auto it = streams_.find(streamId);
-	return (it == streams_.end()) ? nullptr : it->second.get();
+    auto it = arch_streams_.find(streamId);
+	return (it == arch_streams_.end()) ? nullptr : it->second.get();
+}
+
+StorageManager::VisuStreamHolder* StorageManager::get_visu_holder(const std::string& streamId) const {
+    std::scoped_lock<std::mutex> lk(streamsMtx_);
+    auto it = visu_streams_.find(streamId);
+    return (it == visu_streams_.end()) ? nullptr : it->second.get();
 }
