@@ -2,15 +2,19 @@
 
 #include "service-window.h"
 
-class Window_OpenProject : public WindowCRTP<Window_OpenProject> {
-public:
-    Window_OpenProject() {
-    }
+namespace signal_stream {
 
-    void OnRender() {
-        if (ImGui::Begin("Project Name")) {
-
+    class Window_OpenProject : public WindowCRTP<Window_OpenProject> {
+    public:
+        Window_OpenProject() {
         }
-        ImGui::End();
-    }
-};
+
+        void OnRender() {
+            if (ImGui::Begin("Project Name")) {
+
+            }
+            ImGui::End();
+        }
+    };
+
+} // namespace signal_stream

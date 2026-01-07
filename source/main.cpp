@@ -8,7 +8,6 @@
 #include <iostream>
 #include <string>
 #include <filesystem>
-#include <deque>
 #include <vector>
 #include <memory>
 #include <chrono>
@@ -44,24 +43,24 @@ static int SDLCALL IOThread(void* userdata) {
 }
 
 static void SDLCALL appSDL_LogOutputFunction(void* userdata, int category, SDL_LogPriority priority, const char* message) {
-    AppState* state = (AppState*)userdata;
+    signal_stream::AppState* state = (signal_stream::AppState*)userdata;
     state->console->log((int)priority, std::string(message));
 }
 
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 {
-    AppState* state = new AppState();
+    signal_stream::AppState* state = new signal_stream::AppState();
     if (!state) {
         SDL_Log("Failed to allocate memory for app state: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
     *appstate = state;
 
-    state->bus = std::make_unique<ServiceBus>();
-    state->wm = std::make_unique<WindowManager>(*state->bus.get(), *state);
-    state->log = std::make_unique<Logger>(*state->bus.get());
+    state->bus = std::make_unique<signal_stream::ServiceBus>();
+    state->wm = std::make_unique<signal_stream::WindowManager>(*state->bus.get(), *state);
+    state->log = std::make_unique<signal_stream::Logger>(*state->bus.get());
 
-    state->console = new Console();
+    state->console = new signal_stream::Console();
     SDL_SetLogOutputFunction(appSDL_LogOutputFunction, state);
 
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) != 0)
@@ -140,25 +139,25 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
         const float font_size = base_font_size * clamped_scale;
 
         if (!std::filesystem::is_regular_file(font_path)) {
-            state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Warning, std::format("Font file not found: {}", font_path).c_str() });
+            state->bus->Publish<signal_stream::Logger::Event>(signal_stream::Logger::Event{ signal_stream::Logger::Event::Severity::Warning, std::format("Font file not found: {}", font_path).c_str() });
             // fallback: keep default ImGui font (io.FontDefault remains unchanged)
         }
         else {
             ImFont* roboto = io.Fonts->AddFontFromFileTTF(font_path.c_str(), font_size);
             if (roboto) {
                 io.FontDefault = roboto;
-                state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Info, std::format("Font loaded: {} (size {})", font_path, font_size).c_str() });
+                state->bus->Publish<signal_stream::Logger::Event>(signal_stream::Logger::Event{ signal_stream::Logger::Event::Severity::Info, std::format("Font loaded: {} (size {})", font_path, font_size).c_str() });
                 // Do NOT call io.Fonts->Build() here unless your renderer backend requires it
                 // Most backends will build/upload the atlas during their Init or when first rendering.
             }
             else {
-                state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Error, std::format("Failed to load font from {} (requested size {})", font_path, font_size).c_str() });
+                state->bus->Publish<signal_stream::Logger::Event>(signal_stream::Logger::Event{ signal_stream::Logger::Event::Severity::Error, std::format("Failed to load font from {} (requested size {})", font_path, font_size).c_str() });
                 // Optional: attempt a secondary fallback font or keep default ImGui font
             }
         }
     }
     catch (const std::exception& e) {
-        state->bus->Publish<Logger::Event>(Logger::Event{ Logger::Event::Severity::Debug, std::format("Exception while loading font: {})", e.what()).c_str() });
+        state->bus->Publish<signal_stream::Logger::Event>(signal_stream::Logger::Event{ signal_stream::Logger::Event::Severity::Debug, std::format("Exception while loading font: {})", e.what()).c_str() });
     }
 
     // Setup Platform/Renderer backends
@@ -208,13 +207,13 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event)
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
     case SDL_EVENT_WINDOW_RESIZED:
     case SDL_EVENT_WINDOW_MOVED:
-        NotifyUserInput(appstate);
+        signal_stream::NotifyUserInput(appstate);
     }
     return SDL_APP_CONTINUE;
 }
 
 SDL_AppResult SDL_AppIterate(void* appstate) {
-    AppState* state = (AppState*)appstate;
+    signal_stream::AppState* state = (signal_stream::AppState*)appstate;
     io = ImGui::GetIO();
 
     ImGui_ImplSDLGPU3_NewFrame();
@@ -224,7 +223,7 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open Project")) {
-                state->bus->Publish<WindowManager::Event>(WindowManager::Event{ WindowManager::Event::Type::OpenWindow, "window-filebrowser", {} });
+                state->bus->Publish<signal_stream::WindowManager::Event>(signal_stream::WindowManager::Event{ signal_stream::WindowManager::Event::Type::OpenWindow, "window-filebrowser", {} });
             }
             if (ImGui::MenuItem("Open asdasdroject")) {
             }
@@ -295,9 +294,9 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     // Submit the command buffer
     SDL_SubmitGPUCommandBuffer(command_buffer);
 
-    IdleMode_HandleFrameThrottling(appstate);
+    signal_stream::IdleMode_HandleFrameThrottling(appstate);
 
-    return SDL_APP_CONTINUE;  /* carry on with the program! */
+    return SDL_APP_CONTINUE;
 }
 
 void SDL_AppQuit(void* appstate, SDL_AppResult result) {

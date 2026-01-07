@@ -1,7 +1,13 @@
 #include "source-factory.h"
 #include "source-random.h"
 #include "source-mqtt.h"
+#include "source-process.h"
 
-// Register built-in/compile-time services
-REGISTER_SOURCE_TYPE_WITH_META("Random", RandomSource);
-REGISTER_SOURCE_TYPE_WITH_META("MQTT", MQTTSource);
+namespace signal_stream {
+
+    // Register built-in/compile-time services
+    REGISTER_SOURCE_TYPE_WITH_META("Random", RandomSource);
+    REGISTER_SOURCE_TYPE_WITH_META("MQTT", MQTTSource);
+    REGISTER_SOURCE_TYPE_WITH_META("Process", ProcessSource);
+
+} // namespace signal_stream

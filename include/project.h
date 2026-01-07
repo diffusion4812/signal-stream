@@ -10,22 +10,25 @@
 #include "service-storage.h"
 #include "schema.h"
 
-using json = nlohmann::json;
+namespace signal_stream {
 
-struct IMetadata {
-    virtual ~IMetadata() = default;
-};
+    using json = nlohmann::json;
 
-struct SourceData {
-    std::string name = "";
-    std::string type = "";
-    StreamStorageOptions storage_options = StreamStorageOptions();
-    std::shared_ptr<IMetadata> metadata;
-    Schema schema = Schema();
-};
+    struct IMetadata {
+        virtual ~IMetadata() = default;
+    };
 
-struct ProjectData {
-    std::string name = "";
-    std::vector<SourceData> sources;
-};
+    struct SourceData {
+        std::string name = "";
+        std::string type = "";
+        StreamStorageOptions storage_options = StreamStorageOptions();
+        std::shared_ptr<IMetadata> metadata;
+        Schema schema = Schema();
+    };
 
+    struct ProjectData {
+        std::string name = "";
+        std::vector<SourceData> sources;
+    };
+
+} // namespace signal_stream

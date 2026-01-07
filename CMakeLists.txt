@@ -28,6 +28,7 @@ include_directories(
     libs
     ${ARROW_DEBUG_ROOT}/include
     ${ARROW_RELEASE_ROOT}/include
+    "C:/Program Files/Microsoft Visual Studio/18/Community/DIA SDK/include"
 )
 
 # Link directories for .lib files

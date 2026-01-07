@@ -4,32 +4,37 @@
 #include "service-project.h"
 #include "window.h"
 
-class ServiceBus;
-class Console;
-class WindowManager;
-class Logger;
-class Schema;
 struct SDL_Thread;
 
-struct AppState {
-    std::unique_ptr<ServiceBus> bus;
-    std::unique_ptr<ProjectManager> pm;
-    std::unique_ptr<WindowManager> wm;
-    std::unique_ptr<Logger> log;
+namespace signal_stream {
 
-    Console* console;
-    bool consoleIsOpen;
+    class ServiceBus;
+    class Console;
+    class WindowManager;
+    class Logger;
+    class ProjectManager;
 
-    bool show_debug_log;
-    bool show_metrics_window;
+    struct AppState {
+        std::unique_ptr<ServiceBus> bus;
+        std::unique_ptr<ProjectManager> pm;
+        std::unique_ptr<WindowManager> wm;
+        std::unique_ptr<Logger> log;
 
-    double fps;
-    int64_t lastInputTimestamp;
-    bool isIdle;
-    uint64_t frameCount;
-    uint64_t lastTime;
+        Console* console;
+        bool consoleIsOpen;
 
-    boost::asio::io_context* io_context;
-    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
-    SDL_Thread* ioThread;
-};
+        bool show_debug_log;
+        bool show_metrics_window;
+
+        double fps;
+        int64_t lastInputTimestamp;
+        bool isIdle;
+        uint64_t frameCount;
+        uint64_t lastTime;
+
+        boost::asio::io_context* io_context;
+        std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
+        SDL_Thread* ioThread;
+    };
+
+} // namespace signal_stream

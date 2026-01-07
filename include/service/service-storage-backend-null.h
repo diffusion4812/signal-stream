@@ -2,12 +2,18 @@
 
 #include "service-storage-backend.h"
 
-// Null backend (no-op)
-struct NullBackend : public IStorageBackend {
-    bool write(const std::string& streamId, const StreamBuffer::BatchChunks& chunks) {
-        return true;
-    }
+namespace signal_stream {
 
-    void flush() {}
-    void close() {}
-};
+    class IStorageBackend;
+
+    // Null backend (no-op)
+    struct NullBackend : public IStorageBackend {
+        bool write(const std::string& streamId, const StreamBuffer::BatchChunks& chunks) {
+            return true;
+        }
+
+        void flush() {}
+        void close() {}
+    };
+
+}

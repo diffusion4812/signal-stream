@@ -2,30 +2,34 @@
 #include <functional>
 #include <memory>
 
-class SubscriptionToken {
-public:
-    using UnsubscribeFn = std::function<void()>;
+namespace signal_stream {
 
-    SubscriptionToken() : unsubscribeFn_(nullptr) {}
-    SubscriptionToken(UnsubscribeFn fn) : unsubscribeFn_(std::move(fn)) {}
-    ~SubscriptionToken() { if (unsubscribeFn_) unsubscribeFn_(); }
+    class SubscriptionToken {
+    public:
+        using UnsubscribeFn = std::function<void()>;
 
-    SubscriptionToken(const SubscriptionToken&) = delete;
-    SubscriptionToken& operator=(const SubscriptionToken&) = delete;
+        SubscriptionToken() : unsubscribeFn_(nullptr) {}
+        SubscriptionToken(UnsubscribeFn fn) : unsubscribeFn_(std::move(fn)) {}
+        ~SubscriptionToken() { if (unsubscribeFn_) unsubscribeFn_(); }
 
-    SubscriptionToken(SubscriptionToken&& other) noexcept
-        : unsubscribeFn_(std::move(other.unsubscribeFn_)) {
-        other.unsubscribeFn_ = nullptr;
-    }
+        SubscriptionToken(const SubscriptionToken&) = delete;
+        SubscriptionToken& operator=(const SubscriptionToken&) = delete;
 
-    SubscriptionToken& operator=(SubscriptionToken&& other) noexcept {
-        if (this != &other) {
-            unsubscribeFn_ = std::move(other.unsubscribeFn_);
+        SubscriptionToken(SubscriptionToken&& other) noexcept
+            : unsubscribeFn_(std::move(other.unsubscribeFn_)) {
             other.unsubscribeFn_ = nullptr;
         }
-        return *this;
-    }
 
-private:
-    UnsubscribeFn unsubscribeFn_;
-};
+        SubscriptionToken& operator=(SubscriptionToken&& other) noexcept {
+            if (this != &other) {
+                unsubscribeFn_ = std::move(other.unsubscribeFn_);
+                other.unsubscribeFn_ = nullptr;
+            }
+            return *this;
+        }
+
+    private:
+        UnsubscribeFn unsubscribeFn_;
+    };
+
+} // namespace signal_stream

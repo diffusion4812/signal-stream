@@ -1,0 +1,21 @@
+{
+  "name": "Test Project 1",
+  "sources": [
+    {
+      "name": "hello.exe",
+      "type": "Process",
+      "storage": {
+        "capacity": 1000,
+        "flush_size": 50,
+        "flush_interval": 1000
+      },
+      "signals": [
+        {
+          "name": "pv.units",
+          "type": "int32",
+          "unit": ""
+        }
+      ]
+    }
+  ]
+}

@@ -30,3 +30,6 @@ target_link_libraries(signal-stream
     $<$<CONFIG:Release>:arrow.lib>
     $<$<CONFIG:Release>:parquet.lib>
 )
+
+add_subdirectory(C:/Users/LOAR02/Source/symbol-resolver SymbolResolver)
+target_link_libraries(signal-stream SymbolResolver)

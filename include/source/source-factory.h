@@ -9,27 +9,29 @@
 #include "project.h"
 #include "source.h"
 
-// Factory function type: create service instance for given descriptor
-using SourceFactoryFn = std::function<std::shared_ptr<ISource>(ServiceBus& bus, const std::string& name, const Schema& schema, const IMetadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)>;
+namespace signal_stream {
 
-// Registry accessor. Constructed on first use (C++11+ thread-safe).
-inline std::unordered_map<std::string, SourceFactoryFn>& SourceFactoryMap() {
-    static std::unordered_map<std::string, SourceFactoryFn> map;
-    return map;
-}
+    // Factory function type: create service instance for given descriptor
+    using SourceFactoryFn = std::function<std::shared_ptr<ISource>(ServiceBus& bus, const std::string& name, const Schema& schema, const IMetadata& metadata, StorageManager& storage, boost::asio::io_context& ioc)>;
 
-// Register a factory for a service type string. Returns true if inserted.
-inline bool RegisterSourceFactory(const std::string& type, SourceFactoryFn fn) {
-    auto& m = SourceFactoryMap();
-    auto it = m.find(type);
-    if (it != m.end()) return false; // already registered
-    m.emplace(type, std::move(fn));
-    return true;
-}
+    // Registry accessor. Constructed on first use (C++11+ thread-safe).
+    inline std::unordered_map<std::string, SourceFactoryFn>& SourceFactoryMap() {
+        static std::unordered_map<std::string, SourceFactoryFn> map;
+        return map;
+    }
 
-// Registration macro that creates a unique static boolean to perform registration
-// Usage:
-//   REGISTER_SOURCE_TYPE("random", [](std::string type, const Schema& schema){ return RandomDataService::Create(type, schema); });
+    // Register a factory for a service type string. Returns true if inserted.
+    inline bool RegisterSourceFactory(const std::string& type, SourceFactoryFn fn) {
+        auto& m = SourceFactoryMap();
+        auto it = m.find(type);
+        if (it != m.end()) return false; // already registered
+        m.emplace(type, std::move(fn));
+        return true;
+    }
+
+    // Registration macro that creates a unique static boolean to perform registration
+    // Usage:
+    //   REGISTER_SOURCE_TYPE("random", [](std::string type, const Schema& schema){ return RandomDataService::Create(type, schema); });
 #define CONCAT_IMPL(x, y) x##y
 #define CONCAT(x, y) CONCAT_IMPL(x, y)
 
@@ -55,9 +57,11 @@ inline bool RegisterSourceFactory(const std::string& type, SourceFactoryFn fn) {
     }
 
 // Lookup helper: create source by type; returns nullptr if type not found.
-inline std::shared_ptr<ISource> create_source_by_type(ServiceBus& bus, const std::string& name, const std::string& type, const IMetadata& metadata, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
-    auto& m = SourceFactoryMap();
-    auto it = m.find(type);
-    if (it == m.end()) return nullptr;
-    return it->second(bus, name, schema, metadata, storage, ioc);
-}
+    inline std::shared_ptr<ISource> create_source_by_type(ServiceBus& bus, const std::string& name, const std::string& type, const IMetadata& metadata, const Schema& schema, StorageManager& storage, boost::asio::io_context& ioc) {
+        auto& m = SourceFactoryMap();
+        auto it = m.find(type);
+        if (it == m.end()) return nullptr;
+        return it->second(bus, name, schema, metadata, storage, ioc);
+    }
+
+} // namespace signal_stream

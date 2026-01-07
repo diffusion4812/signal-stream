@@ -45,7 +45,7 @@ std::vector<std::byte> CreateTestRecord(const Schema& schema, int32_t val1 = 123
     size_t recordSize = schema.instance_size();
     std::vector<std::byte> payload(recordSize);
 
-    Instance instance(schema);
+    Record instance(schema);
     instance.set<int32_t>("field1", val1);
     instance.set<int32_t>("field2", val2);
     instance.set<int64_t>("field3", val3);

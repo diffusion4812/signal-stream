@@ -18,78 +18,82 @@
 #include "project.h"
 #include "hash.h"
 
-class ProjectManager {
-public:
-    using SourcePtr = std::shared_ptr<ISource>;
+namespace signal_stream {
 
-    explicit ProjectManager(ServiceBus& bus,
-        const std::string& path,
-        boost::asio::io_context& ioc);
+    class ProjectManager {
+    public:
+        using SourcePtr = std::shared_ptr<ISource>;
 
-    ~ProjectManager();
+        explicit ProjectManager(ServiceBus& bus,
+            const std::string& path,
+            boost::asio::io_context& ioc);
 
-    // Project lifecycle
-    bool load_project(const ProjectData& pdata, bool autoStart, std::string& outError);
-    bool load_project_from_file (const std::string& path, bool autoStart, std::string& outError);
+        ~ProjectManager();
 
-    // Registry access
-    const SourceRegistry& get_registry() const;
-    bool is_source_registered(const std::string& name) const;
-    std::vector<std::string> get_all_source_names() const;
-    size_t get_source_count() const;
+        // Project lifecycle
+        bool load_project(const ProjectData& pdata, bool autoStart, std::string& outError);
+        bool load_project_from_file(const std::string& path, bool autoStart, std::string& outError);
 
-    // Source access
-    SourcePtr get_source(const std::string& name) const;
-    std::optional<Schema> get_source_schema(const std::string& name) const;
-    std::unordered_map<std::string, SourcePtr> get_all_sources() const;
+        // Registry access
+        const SourceRegistry& get_registry() const;
+        bool is_source_registered(const std::string& name) const;
+        std::vector<std::string> get_all_source_names() const;
+        size_t get_source_count() const;
 
-    // Source management
-    bool add_source(const SourceData& desc, std::string& outError);
-    bool remove_source(const std::string& name, std::string& outError);
-    bool rename_source(const std::string& oldName, const std::string& newName, std::string& outError);
+        // Source access
+        SourcePtr get_source(const std::string& name) const;
+        std::optional<Schema> get_source_schema(const std::string& name) const;
+        std::unordered_map<std::string, SourcePtr> get_all_sources() const;
 
-    // Service lifecycle
-    bool start_service(const std::string& name, std::string& outError);
-    bool stop_service(const std::string& name, std::string& outError);
-    bool start_all_services(std::string& outError);
-    void stop_all_services();
+        // Source management
+        bool add_source(const SourceData& desc, std::string& outError);
+        bool remove_source(const std::string& name, std::string& outError);
+        bool rename_source(const std::string& oldName, const std::string& newName, std::string& outError);
 
-    // Storage access
-    StreamBufferHandle get_buffer_handle(const std::string& sourceName, const StorageManager::StreamType type);
-    float get_buffer_health(const std::string& sourceName) const;
-    const StorageManager& get_storage() const;
+        // Service lifecycle
+        bool start_service(const std::string& name, std::string& outError);
+        bool stop_service(const std::string& name, std::string& outError);
+        bool start_all_services(std::string& outError);
+        void stop_all_services();
 
-    // Project metadata
-    ProjectData get_project_data() const;
-    std::string get_name() const;
-    std::string get_path() const;
-    uint32_t get_hash() const;
+        // Storage access
+        StreamBufferHandle get_buffer_handle(const std::string& sourceName, const StorageManager::StreamType type);
+        float get_buffer_health(const std::string& sourceName) const;
+        const StorageManager& get_storage() const;
 
-private:
-    // Internal helpers
-    bool start_all_services_locked(std::string& outError);
-    void stop_all_services_locked();
-    void finalize_all_schemas();
+        // Project metadata
+        ProjectData get_project_data() const;
+        std::string get_name() const;
+        std::string get_path() const;
+        uint32_t get_hash() const;
 
-	// Source management helpers
-    bool add_source_locked(const SourceData& source, std::string& outError);
+    private:
+        // Internal helpers
+        bool start_all_services_locked(std::string& outError);
+        void stop_all_services_locked();
+        void finalize_all_schemas();
 
-    // Members
-    ServiceBus& bus_;
-    boost::asio::io_context& ioc_;
+        // Source management helpers
+        bool add_source_locked(const SourceData& source, std::string& outError);
 
-    mutable std::mutex mtx_;
-    ProjectData data_;
+        // Members
+        ServiceBus& bus_;
+        boost::asio::io_context& ioc_;
 
-    std::string path_;
-    uint32_t hash_;
+        mutable std::mutex mtx_;
+        ProjectData data_;
 
-    SourceRegistry registry_;
-    StorageManager storage_;
-    std::unordered_map<std::string, SourcePtr> sources_;
-};
+        std::string path_;
+        uint32_t hash_;
 
-// Utility functions
-bool load_project_data_from_file(const std::string& path, ProjectData& outProject, std::string& outError);
-SourceData parse_source_data(const json& j);
-ProjectData parse_project_data(const json& j);
+        SourceRegistry registry_;
+        StorageManager storage_;
+        std::unordered_map<std::string, SourcePtr> sources_;
+    };
+
+    // Utility functions
+    bool load_project_data_from_file(const std::string& path, ProjectData& outProject, std::string& outError);
+    SourceData parse_source_data(const json& j);
+    ProjectData parse_project_data(const json& j);
+
+} // namespace signal_stream
